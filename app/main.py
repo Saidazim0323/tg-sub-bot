@@ -178,7 +178,7 @@ async def check_and_kick_if_no_subscription(chat_id: int, user_id: int):
             pass
 
 
-# ✅ Guruh + kanalga kirganlarni ushlash
+# ✅ Guruh + kanalga kirganlarni ushlash (chat_member update)
 @dp.chat_member()
 async def on_chat_member_update(event: ChatMemberUpdated):
     chat_id = event.chat.id
@@ -191,6 +191,15 @@ async def on_chat_member_update(event: ChatMemberUpdated):
 
     user_id = event.new_chat_member.user.id
     asyncio.create_task(check_and_kick_if_no_subscription(chat_id, user_id))
+
+
+# ✅ BACKUP: Guruhga kirish ba'zida new_chat_members bilan keladi (chat_member kelmasa ham ishlaydi)
+@dp.message(F.new_chat_members)
+async def on_new_members(msg: Message):
+    if msg.chat.id != GROUP_ID:
+        return
+    for u in msg.new_chat_members:
+        asyncio.create_task(check_and_kick_if_no_subscription(GROUP_ID, u.id))
 
 
 async def job_check_subs():
@@ -390,7 +399,11 @@ async def on_startup():
 
     if PUBLIC_BASE_URL:
         try:
-            await bot.set_webhook(f"{PUBLIC_BASE_URL}/tg/webhook")
+            # ✅ FIX 1: chat_member update kelishi uchun allowed_updates qo‘shamiz
+            await bot.set_webhook(
+                f"{PUBLIC_BASE_URL}/tg/webhook",
+                allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"],
+            )
         except Exception:
             pass
 
