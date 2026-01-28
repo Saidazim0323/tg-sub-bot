@@ -1,16 +1,25 @@
 import hashlib
+import base64
 
-# CLICK SIGNATURE TEKSHIRISH
-def verify_click(data, secret):
-    s = (
-        f"{data['click_trans_id']}{data['service_id']}"
-        f"{secret}{data['merchant_trans_id']}"
-        f"{data['amount']}{data['action']}{data['sign_time']}"
-    )
-    return hashlib.md5(s.encode()).hexdigest() == data["sign_string"]
+def verify_click_signature(data: dict, secret: str) -> bool:
+    try:
+        s = (
+            f"{data['click_trans_id']}{data['service_id']}"
+            f"{secret}{data['merchant_trans_id']}"
+            f"{data['amount']}{data['action']}{data['sign_time']}"
+        )
+        expected = hashlib.md5(s.encode()).hexdigest()
+        return expected == data.get("sign_string")
+    except Exception:
+        return False
 
-# PAYME JSON-RPC VALIDATION
-async def verify_payme(data, secret):
-    # Test / production: PAYME_SECRET bilan tekshir
-    # Bu yerga real check qo‘yiladi
-    return True
+def verify_payme_basic_auth(headers, secret: str) -> bool:
+    auth = headers.get("authorization")
+    if not auth or not auth.lower().startswith("basic "):
+        return False
+    try:
+        token = auth.split(" ", 1)[1].strip()
+        decoded = base64.b64decode(token).decode()
+        return decoded == secret
+    except Exception:
+        return False
