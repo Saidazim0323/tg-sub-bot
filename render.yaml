@@ -6,6 +6,4 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.9
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: >
-      uvicorn app.api:app --host 0.0.0.0 --port 10000 &
-      python -m app.main
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port 10000
