@@ -3,18 +3,19 @@ from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
-    Message, InlineKeyboardMarkup, InlineKeyboardButton, ChatMemberUpdated
+    Message, InlineKeyboardMarkup,
+    InlineKeyboardButton, ChatMemberUpdated
 )
 from aiogram.filters import Command
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from .config import (
     BOT_TOKEN, GROUP_ID, CHANNEL_ID,
     PLAN_PRICES_UZS, PAYME_PAY_URL, CLICK_PAY_URL,
+    ADMIN_IDS
 )
 from .database import Session
-from .admin import register_admin
+from .admin import register_admin, admin_reply_kb
 from .services import (
     ensure_user,
     upsert_subscription, deactivate_subscription,
@@ -22,6 +23,7 @@ from .services import (
     expected_amount_uzs, normalize_plan_days,
 )
 from .models import Subscription
+
 
 # ================= BOT / DP =================
 bot = Bot(BOT_TOKEN, parse_mode="HTML")
@@ -32,9 +34,13 @@ dp = Dispatcher()
 def pay_buttons(pay_code: str, amount: int):
     rows = []
     if PAYME_PAY_URL:
-        rows.append([InlineKeyboardButton(text="💳 Payme orqali to‘lash", url=PAYME_PAY_URL)])
+        rows.append(
+            [InlineKeyboardButton(text="💳 Payme orqali to‘lash", url=PAYME_PAY_URL)]
+        )
     if CLICK_PAY_URL:
-        rows.append([InlineKeyboardButton(text="💳 Click orqali to‘lash", url=CLICK_PAY_URL)])
+        rows.append(
+            [InlineKeyboardButton(text="💳 Click orqali to‘lash", url=CLICK_PAY_URL)]
+        )
     return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
@@ -46,16 +52,13 @@ def plans_keyboard():
     ])
 
 
-# ================= USER COMMANDS =================
-from .config import ADMIN_IDS
-from .admin import admin_reply_kb   # MUHIM
-
+# ================= /START =================
 @dp.message(Command("start"))
 async def start_cmd(msg: Message):
-    u = await ensure_user(msg.from_user.id)
+    user_id = msg.from_user.id
 
-    # 👑 AGAR ADMIN BO‘LSA
-    if msg.from_user.id in ADMIN_IDS:
+    # 👑 ADMIN
+    if user_id in ADMIN_IDS:
         await msg.answer(
             "👑 <b>Admin panel</b>\n\n"
             "Pastdagi menyudan foydalaning 👇",
@@ -64,6 +67,7 @@ async def start_cmd(msg: Message):
         return
 
     # 👤 ODDIY USER
+    u = await ensure_user(user_id)
     await msg.answer(
         "💎 Pullik obuna\n\n"
         f"🔐 PAY CODE: <code>{u.pay_code}</code>\n"
@@ -72,6 +76,7 @@ async def start_cmd(msg: Message):
     )
 
 
+# ================= PLAN TANLASH =================
 @dp.callback_query(F.data.startswith("plan:"))
 async def choose_plan(call):
     u = await ensure_user(call.from_user.id)
@@ -92,13 +97,11 @@ async def choose_plan(call):
 # ================= INVITES =================
 async def send_invites(tg_id: int):
     g = await bot.create_chat_invite_link(
-        chat_id=GROUP_ID,
-        member_limit=1,
+        GROUP_ID, member_limit=1,
         expire_date=datetime.utcnow() + timedelta(hours=1)
     )
     c = await bot.create_chat_invite_link(
-        chat_id=CHANNEL_ID,
-        member_limit=1,
+        CHANNEL_ID, member_limit=1,
         expire_date=datetime.utcnow() + timedelta(hours=1)
     )
     await bot.send_message(
@@ -106,7 +109,7 @@ async def send_invites(tg_id: int):
         "✅ To‘lov tasdiqlandi!\n\n"
         f"👥 Guruh: {g.invite_link}\n"
         f"📣 Kanal: {c.invite_link}\n\n"
-        "⏳ Linklar 1 soat amal qiladi va 1 martalik."
+        "⏳ Linklar 1 soat amal qiladi."
     )
 
 
@@ -114,7 +117,6 @@ async def send_invites(tg_id: int):
 async def check_and_kick_if_no_subscription(chat_id: int, user_id: int):
     await asyncio.sleep(10)
 
-    # hali chat ichidami?
     try:
         cm = await bot.get_chat_member(chat_id, user_id)
         if cm.status not in ("member", "administrator", "creator"):
@@ -122,7 +124,6 @@ async def check_and_kick_if_no_subscription(chat_id: int, user_id: int):
     except Exception:
         return
 
-    # obuna bormi?
     async with Session() as s:
         sub = await s.get(Subscription, user_id)
 
@@ -137,20 +138,19 @@ async def check_and_kick_if_no_subscription(chat_id: int, user_id: int):
 # ================= KIRGANLARNI USHLASH =================
 @dp.chat_member()
 async def on_chat_member_update(event: ChatMemberUpdated):
-    chat_id = event.chat.id
-    if chat_id not in (GROUP_ID, CHANNEL_ID):
+    if event.chat.id not in (GROUP_ID, CHANNEL_ID):
         return
 
-    old = event.old_chat_member.status
-    new = event.new_chat_member.status
+    if event.old_chat_member.status in ("left", "kicked") and \
+       event.new_chat_member.status in ("member", "administrator"):
+        asyncio.create_task(
+            check_and_kick_if_no_subscription(
+                event.chat.id,
+                event.new_chat_member.user.id
+            )
+        )
 
-    # faqat kirish payti
-    if old in ("left", "kicked") and new in ("member", "administrator"):
-        user_id = event.new_chat_member.user.id
-        asyncio.create_task(check_and_kick_if_no_subscription(chat_id, user_id))
 
-
-# BACKUP: guruhda ba’zida chat_member kelmaydi, message orqali keladi
 @dp.message(F.new_chat_members)
 async def on_new_members(msg: Message):
     if msg.chat.id != GROUP_ID:
@@ -174,9 +174,9 @@ async def job_check_subs():
             await deactivate_subscription(sub.tg_id)
 
 
-# ================= STARTUP/SHUTDOWN HOOKS (api.py chaqiradi) =================
+# ================= STARTUP =================
 def setup_bot():
-    """api.py startup paytida chaqiriladi"""
+    """api.py startup paytida CHAQRILISHI SHART"""
     register_admin(dp)
 
 
@@ -188,7 +188,4 @@ def start_scheduler(app):
 
 
 async def stop_bot():
-    try:
-        await bot.session.close()
-    except Exception:
-        pass
+    await bot.session.close()
