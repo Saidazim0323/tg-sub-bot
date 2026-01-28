@@ -6,6 +6,46 @@ from .database import Session
 from .models import User, Subscription, Payment, Txn
 from .config import PLAN_PRICES_UZS
 
+from datetime import datetime, timedelta, date
+from sqlalchemy import select
+from .database import Session
+from .models import Payment, User
+
+
+async def list_payments_since(dt_utc: datetime):
+    async with Session() as s:
+        q = (
+            select(Payment, User.pay_code)
+            .join(User, User.tg_id == Payment.tg_id, isouter=True)
+            .where(Payment.created_at >= dt_utc)
+            .order_by(Payment.id.desc())
+        )
+        res = await s.execute(q)
+        out = []
+        for p, pay_code in res.all():
+            out.append({
+                "id": p.id,
+                "created_at": p.created_at,
+                "tg_id": p.tg_id,
+                "pay_code": pay_code,
+                "provider": p.provider,
+                "amount": p.amount,
+                "status": p.status,
+                "plan_days": getattr(p, "plan_days", 30),
+                "ext_id": getattr(p, "ext_id", None),
+            })
+        return out
+
+
+async def list_payments_today_utc():
+    now = datetime.utcnow()
+    start = datetime(now.year, now.month, now.day)  # UTC today 00:00
+    return await list_payments_since(start)
+
+
+async def list_payments_last_30d():
+    start = datetime.utcnow() - timedelta(days=30)
+    return await list_payments_since(start)
 
 def normalize_plan_days(days: int) -> int:
     return days if days in (7, 30, 90) else 30
