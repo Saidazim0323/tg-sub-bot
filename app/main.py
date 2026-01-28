@@ -47,15 +47,15 @@ def plans_keyboard():
 
 
 # ================= USER COMMANDS =================
-from .config import ADMIN_ID
+from .config import ADMIN_IDS
 from .admin import admin_reply_kb   # MUHIM
 
 @dp.message(Command("start"))
 async def start_cmd(msg: Message):
     u = await ensure_user(msg.from_user.id)
 
-    # 🔐 AGAR ADMIN BO‘LSA
-    if msg.from_user.id == ADMIN_ID:
+    # 👑 AGAR ADMIN BO‘LSA
+    if msg.from_user.id in ADMIN_IDS:
         await msg.answer(
             "👑 <b>Admin panel</b>\n\n"
             "Pastdagi menyudan foydalaning 👇",
