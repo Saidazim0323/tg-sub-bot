@@ -1,7 +1,11 @@
 import re
 from datetime import datetime, timedelta
 from time import time
-
+import asyncio
+from datetime import datetime
+from .database import Session
+from .models import Subscription
+from aiogram.types import ChatMemberUpdated
 from fastapi import FastAPI, Request, HTTPException
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, Update
