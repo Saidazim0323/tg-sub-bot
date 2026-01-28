@@ -92,6 +92,21 @@ async def start_cmd(msg: Message):
         reply_markup=plans_keyboard()
     )
 
+@dp.message(Command("help"))
+async def help_cmd(msg: Message):
+    await msg.answer(
+        "ℹ️ <b>Yordam</b>\n\n"
+        "1️⃣ /start — PAY CODE olish va tarif tanlash\n\n"
+        "2️⃣ To‘lov qilish:\n"
+        "• Payme yoki Click ilovasiga kiring\n"
+        "• Merchant nomini qidiring\n"
+        "• <b>ID maydoniga PAY CODE</b> ni yozing\n"
+        "• Tarif summasini kiriting\n\n"
+        "3️⃣ To‘lovdan keyin:\n"
+        "• Bot avtomatik guruh va kanal linkini yuboradi\n\n"
+        "❓ Muammo bo‘lsa — adminga yozing"
+    )
+    
 @dp.callback_query(F.data.startswith("plan:"))
 async def choose_plan(call):
     u = await ensure_user(call.from_user.id)
