@@ -6,9 +6,10 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     CallbackQuery,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
 )
 from aiogram.types.input_file import BufferedInputFile
-
 from sqlalchemy import select
 
 from .config import ADMIN_ID
@@ -17,216 +18,117 @@ from .models import Subscription, Payment
 from .reports import build_payments_xlsx, payments_stats
 
 
-def _to_rows(items: list[Payment]) -> list[dict]:
-    out = []
-    for p in items:
-        out.append({
-            "id": p.id,
-            "created_at": p.created_at,
-            "tg_id": p.tg_id,
-            "provider": p.provider,
-            "amount": p.amount,
-            "status": p.status,
-            "plan_days": getattr(p, "plan_days", 30),
-            "ext_id": getattr(p, "ext_id", None),
-        })
-    return out
+# =========================
+# Pastki ADMIN MENU (doim turadi)
+# =========================
+def admin_reply_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🎁 Obuna berish"), KeyboardButton(text="📊 To‘lovlar")],
+            [KeyboardButton(text="📈 Statistika"), KeyboardButton(text="ℹ️ Buyruqlar")],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
 
 
-async def _load_payments_last_30():
-    async with Session() as s:
-        res = await s.execute(select(Payment).order_by(Payment.id.desc()).limit(30))
-        return res.scalars().all()
+# =========================
+# Statistika INLINE menu
+# =========================
+def stats_inline_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📈 Bugun", callback_data="stats:today")],
+        [InlineKeyboardButton(text="📈 30 kun", callback_data="stats:30d")],
+        [InlineKeyboardButton(text="📄 Excel (Bugun)", callback_data="xlsx:today")],
+        [InlineKeyboardButton(text="📄 Excel (30 kun)", callback_data="xlsx:30d")],
+        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="stats:back")],
+    ])
 
 
-async def _load_payments_since(dt_utc: datetime):
+# =========================
+# DB helpers
+# =========================
+async def load_payments_since(dt: datetime):
     async with Session() as s:
         res = await s.execute(
             select(Payment)
-            .where(Payment.created_at >= dt_utc)
-            .order_by(Payment.id.desc())
+            .where(Payment.created_at >= dt)
+            .order_by(Payment.created_at.desc())
         )
         return res.scalars().all()
 
 
+async def load_last_30():
+    async with Session() as s:
+        res = await s.execute(
+            select(Payment).order_by(Payment.id.desc()).limit(30)
+        )
+        return res.scalars().all()
+
+
+def to_rows(items: list[Payment]):
+    return [{
+        "id": p.id,
+        "created_at": p.created_at,
+        "tg_id": p.tg_id,
+        "provider": p.provider,
+        "amount": p.amount,
+        "status": p.status,
+        "plan_days": p.plan_days,
+        "ext_id": p.ext_id,
+    } for p in items]
+
+
+# =========================
+# REGISTER
+# =========================
 def register_admin(dp):
-    # ✅ Admin panel (tugmalar)
+
+    # =========================
+    # /admin
+    # =========================
     @dp.message(F.text == "/admin")
-    async def admin_menu(msg: Message):
+    async def admin_panel(msg: Message):
         if msg.from_user.id != ADMIN_ID:
             return
+        await msg.answer(
+            "👑 <b>Admin panel</b>\nPastdagi menyudan tanlang 👇",
+            reply_markup=admin_reply_kb()
+        )
 
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎁 Obuna berish", callback_data="admin:give")],
-            [InlineKeyboardButton(text="📊 To‘lovlar (30 ta)", callback_data="admin:payments")],
-            [InlineKeyboardButton(text="📈 Statistika (Bugun)", callback_data="admin:stats_today")],
-            [InlineKeyboardButton(text="📈 Statistika (30 kun)", callback_data="admin:stats_30d")],
-            [InlineKeyboardButton(text="📄 Excel (Bugun)", callback_data="admin:xlsx_today")],
-            [InlineKeyboardButton(text="📄 Excel (30 kun)", callback_data="admin:xlsx_30d")],
-            [InlineKeyboardButton(text="ℹ️ Buyruqlar", callback_data="admin:help")],
-        ])
-        await msg.answer("👑 <b>Admin panel</b>", reply_markup=kb)
-
-    # ✅ Admin help
-    @dp.callback_query(F.data == "admin:help")
-    async def admin_help(call: CallbackQuery):
-        if call.from_user.id != ADMIN_ID:
-            await call.answer("Ruxsat yo‘q", show_alert=True)
+    # =========================
+    # BUYRUQLAR
+    # =========================
+    @dp.message(F.text == "ℹ️ Buyruqlar")
+    async def admin_help(msg: Message):
+        if msg.from_user.id != ADMIN_ID:
             return
-
-        await call.message.answer(
+        await msg.answer(
             "👑 <b>Admin buyruqlari</b>\n\n"
             "/admin — admin panel\n"
-            "/give USER_ID KUN — obuna berish\n"
-            "/payments — oxirgi 30 ta to‘lov\n\n"
-            "Panel tugmalari:\n"
-            "📊 To‘lovlar (30 ta)\n"
-            "📈 Statistika (Bugun / 30 kun)\n"
-            "📄 Excel (Bugun / 30 kun)\n"
+            "/give USER_ID KUN — obuna berish\n\n"
+            "Pastki menyu orqali:\n"
+            "🎁 Obuna berish\n"
+            "📊 To‘lovlar\n"
+            "📈 Statistika",
+            reply_markup=admin_reply_kb()
         )
-        await call.answer()
 
-    # ✅ Tugma: obuna berish yo‘riqnoma
-    @dp.callback_query(F.data == "admin:give")
-    async def admin_give_hint(call: CallbackQuery):
-        if call.from_user.id != ADMIN_ID:
-            await call.answer("Ruxsat yo‘q", show_alert=True)
+    # =========================
+    # OBUNA BERISH
+    # =========================
+    @dp.message(F.text == "🎁 Obuna berish")
+    async def admin_give_hint(msg: Message):
+        if msg.from_user.id != ADMIN_ID:
             return
-
-        await call.message.answer(
+        await msg.answer(
             "🎁 <b>Obuna berish</b>\n\n"
-            "Format:\n"
-            "<code>/give USER_ID KUN</code>\n\n"
+            "<code>/give USER_ID KUN</code>\n"
             "Misol:\n"
-            "<code>/give 123456789 30</code>"
+            "<code>/give 123456789 30</code>",
+            reply_markup=admin_reply_kb()
         )
-        await call.answer()
 
-    # ✅ Tugma: To‘lovlar (callback) — oxirgi 30 ta
-    @dp.callback_query(F.data == "admin:payments")
-    async def admin_payments(call: CallbackQuery):
-        if call.from_user.id != ADMIN_ID:
-            await call.answer("Ruxsat yo‘q", show_alert=True)
-            return
-
-        items = await _load_payments_last_30()
-
-        if not items:
-            await call.message.answer("📊 To‘lovlar yo‘q")
-            await call.answer()
-            return
-
-        lines = []
-        for p in items:
-            lines.append(
-                f"{p.created_at:%m-%d %H:%M} | {p.tg_id} | {p.provider} | "
-                f"{p.amount} so'm | {p.status} | {p.plan_days} kun"
-            )
-
-        await call.message.answer("📊 <b>Oxirgi 30 ta to‘lov</b>\n\n" + "\n".join(lines))
-        await call.answer()
-
-    # ✅ Statistika: bugun (UTC)
-    @dp.callback_query(F.data == "admin:stats_today")
-    async def stats_today(call: CallbackQuery):
-        if call.from_user.id != ADMIN_ID:
-            await call.answer("Ruxsat yo‘q", show_alert=True)
-            return
-
-        now = datetime.utcnow()
-        start = datetime(now.year, now.month, now.day)  # UTC today 00:00
-        items = await _load_payments_since(start)
-
-        rows = _to_rows(items)
-        st = payments_stats(rows)
-
-        def g(name):
-            x = st.get(name, {"count": 0, "sum": 0})
-            return x["count"], x["sum"]
-
-        all_c, all_s = g("all")
-        payme_c, payme_s = g("payme")
-        click_c, click_s = g("click")
-
-        await call.message.answer(
-            "📈 <b>Statistika (Bugun, UTC)</b>\n\n"
-            f"ALL: {all_c} ta | {all_s:,} so'm\n"
-            f"PAYME: {payme_c} ta | {payme_s:,} so'm\n"
-            f"CLICK: {click_c} ta | {click_s:,} so'm\n"
-        )
-        await call.answer()
-
-    # ✅ Statistika: 30 kun (UTC)
-    @dp.callback_query(F.data == "admin:stats_30d")
-    async def stats_30d(call: CallbackQuery):
-        if call.from_user.id != ADMIN_ID:
-            await call.answer("Ruxsat yo‘q", show_alert=True)
-            return
-
-        start = datetime.utcnow() - timedelta(days=30)
-        items = await _load_payments_since(start)
-
-        rows = _to_rows(items)
-        st = payments_stats(rows)
-
-        def g(name):
-            x = st.get(name, {"count": 0, "sum": 0})
-            return x["count"], x["sum"]
-
-        all_c, all_s = g("all")
-        payme_c, payme_s = g("payme")
-        click_c, click_s = g("click")
-
-        await call.message.answer(
-            "📈 <b>Statistika (Oxirgi 30 kun, UTC)</b>\n\n"
-            f"ALL: {all_c} ta | {all_s:,} so'm\n"
-            f"PAYME: {payme_c} ta | {payme_s:,} so'm\n"
-            f"CLICK: {click_c} ta | {click_s:,} so'm\n"
-        )
-        await call.answer()
-
-    # ✅ Excel: bugun (UTC)
-    @dp.callback_query(F.data == "admin:xlsx_today")
-    async def xlsx_today(call: CallbackQuery):
-        if call.from_user.id != ADMIN_ID:
-            await call.answer("Ruxsat yo‘q", show_alert=True)
-            return
-
-        now = datetime.utcnow()
-        start = datetime(now.year, now.month, now.day)
-        items = await _load_payments_since(start)
-
-        rows = _to_rows(items)
-        xlsx = build_payments_xlsx(rows, "Payments - Today (UTC)")
-        filename = f"payments_today_utc_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
-
-        await call.message.answer_document(
-            BufferedInputFile(xlsx, filename=filename),
-            caption="📄 Excel hisobot (Bugun, UTC)"
-        )
-        await call.answer()
-
-    # ✅ Excel: 30 kun (UTC)
-    @dp.callback_query(F.data == "admin:xlsx_30d")
-    async def xlsx_30d(call: CallbackQuery):
-        if call.from_user.id != ADMIN_ID:
-            await call.answer("Ruxsat yo‘q", show_alert=True)
-            return
-
-        start = datetime.utcnow() - timedelta(days=30)
-        items = await _load_payments_since(start)
-
-        rows = _to_rows(items)
-        xlsx = build_payments_xlsx(rows, "Payments - Last 30 days (UTC)")
-        filename = f"payments_30d_utc_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
-
-        await call.message.answer_document(
-            BufferedInputFile(xlsx, filename=filename),
-            caption="📄 Excel hisobot (Oxirgi 30 kun, UTC)"
-        )
-        await call.answer()
-
-    # ✅ Komanda: /give USER_ID DAYS
     @dp.message(F.text.startswith("/give"))
     async def give(msg: Message):
         if msg.from_user.id != ADMIN_ID:
@@ -234,16 +136,11 @@ def register_admin(dp):
 
         parts = msg.text.split()
         if len(parts) != 3:
-            await msg.answer("Format: /give USER_ID KUN\nMisol: /give 123456789 30")
+            await msg.answer("Format: /give USER_ID KUN", reply_markup=admin_reply_kb())
             return
 
         _, uid, days = parts
-        try:
-            uid = int(uid)
-            days = int(days)
-        except ValueError:
-            await msg.answer("Xato: USER_ID va KUN raqam bo‘lishi kerak.")
-            return
+        uid, days = int(uid), int(days)
 
         async with Session() as s:
             s.add(Subscription(
@@ -253,21 +150,126 @@ def register_admin(dp):
             ))
             await s.commit()
 
-        await msg.answer("✅ Obuna berildi")
+        await msg.answer("✅ Obuna berildi", reply_markup=admin_reply_kb())
 
-    # ✅ Komanda: /payments (oxirgi 30 ta)
-    @dp.message(F.text == "/payments")
-    async def payments_cmd(msg: Message):
+    # =========================
+    # TO‘LOVLAR
+    # =========================
+    @dp.message(F.text == "📊 To‘lovlar")
+    async def payments(msg: Message):
         if msg.from_user.id != ADMIN_ID:
             return
 
-        items = await _load_payments_last_30()
+        items = await load_last_30()
         if not items:
-            await msg.answer("To‘lovlar yo‘q")
+            await msg.answer("📊 To‘lovlar yo‘q", reply_markup=admin_reply_kb())
             return
 
         text = "\n".join(
-            f"{p.created_at:%m-%d %H:%M} | {p.tg_id} | {p.provider} | {p.amount} | {p.status} | {p.plan_days} kun"
+            f"{p.created_at:%m-%d %H:%M} | {p.tg_id} | {p.provider} | {p.amount} so'm"
             for p in items
         )
-        await msg.answer(text)
+        await msg.answer("📊 <b>Oxirgi 30 ta to‘lov</b>\n\n" + text,
+                         reply_markup=admin_reply_kb())
+
+    # =========================
+    # STATISTIKA (ENTRY)
+    # =========================
+    @dp.message(F.text == "📈 Statistika")
+    async def stats_entry(msg: Message):
+        if msg.from_user.id != ADMIN_ID:
+            return
+        await msg.answer(
+            "📈 <b>Statistika</b>\nTanlang 👇",
+            reply_markup=stats_inline_kb()
+        )
+
+    # =========================
+    # STATISTIKA CALLBACKS (EDIT bilan)
+    # =========================
+    @dp.callback_query(F.data == "stats:today")
+    async def stats_today(call: CallbackQuery):
+        if call.from_user.id != ADMIN_ID:
+            return
+
+        start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        items = await load_payments_since(start)
+        st = payments_stats(to_rows(items))
+
+        text = (
+            "📈 <b>Bugungi statistika (UTC)</b>\n\n"
+            f"ALL: {st['all']['count']} ta | {st['all']['sum']:,} so'm\n"
+            f"PAYME: {st['payme']['count']} ta | {st['payme']['sum']:,} so'm\n"
+            f"CLICK: {st['click']['count']} ta | {st['click']['sum']:,} so'm"
+        )
+
+        await call.message.edit_text(text, reply_markup=stats_inline_kb())
+        await call.answer()
+
+    @dp.callback_query(F.data == "stats:30d")
+    async def stats_30d(call: CallbackQuery):
+        if call.from_user.id != ADMIN_ID:
+            return
+
+        start = datetime.utcnow() - timedelta(days=30)
+        items = await load_payments_since(start)
+        st = payments_stats(to_rows(items))
+
+        text = (
+            "📈 <b>Oxirgi 30 kun statistika (UTC)</b>\n\n"
+            f"ALL: {st['all']['count']} ta | {st['all']['sum']:,} so'm\n"
+            f"PAYME: {st['payme']['count']} ta | {st['payme']['sum']:,} so'm\n"
+            f"CLICK: {st['click']['count']} ta | {st['click']['sum']:,} so'm"
+        )
+
+        await call.message.edit_text(text, reply_markup=stats_inline_kb())
+        await call.answer()
+
+    # =========================
+    # EXCEL
+    # =========================
+    @dp.callback_query(F.data == "xlsx:today")
+    async def xlsx_today(call: CallbackQuery):
+        if call.from_user.id != ADMIN_ID:
+            return
+
+        start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        items = await load_payments_since(start)
+
+        data = build_payments_xlsx(to_rows(items), "Today")
+        fname = f"payments_today_{datetime.utcnow():%Y%m%d_%H%M}.xlsx"
+
+        await call.message.answer_document(
+            BufferedInputFile(data, filename=fname),
+            caption="📄 Bugungi Excel hisobot"
+        )
+        await call.answer()
+
+    @dp.callback_query(F.data == "xlsx:30d")
+    async def xlsx_30d(call: CallbackQuery):
+        if call.from_user.id != ADMIN_ID:
+            return
+
+        start = datetime.utcnow() - timedelta(days=30)
+        items = await load_payments_since(start)
+
+        data = build_payments_xlsx(to_rows(items), "Last 30 days")
+        fname = f"payments_30d_{datetime.utcnow():%Y%m%d_%H%M}.xlsx"
+
+        await call.message.answer_document(
+            BufferedInputFile(data, filename=fname),
+            caption="📄 Oxirgi 30 kun Excel hisobot"
+        )
+        await call.answer()
+
+    # =========================
+    # BACK
+    # =========================
+    @dp.callback_query(F.data == "stats:back")
+    async def stats_back(call: CallbackQuery):
+        if call.from_user.id != ADMIN_ID:
+            return
+        await call.message.edit_text(
+            "👑 <b>Admin panel</b>\nPastdagi menyudan tanlang 👇"
+        )
+        await call.answer()
