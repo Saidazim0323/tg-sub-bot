@@ -1,14 +1,12 @@
 import re
+import asyncio
 from datetime import datetime, timedelta
 from time import time
-import asyncio
-from datetime import datetime
-from .database import Session
-from .models import Subscription
-from aiogram.types import ChatMemberUpdated
+
 from fastapi import FastAPI, Request, HTTPException
+
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, Update
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, Update, ChatMemberUpdated
 from aiogram.filters import Command
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -38,17 +36,20 @@ app = FastAPI()
 
 _rate = {}
 
+
 def get_client_ip(req: Request) -> str:
     xff = req.headers.get("x-forwarded-for")
     if xff:
         return xff.split(",")[0].strip()
     return req.client.host if req.client else "unknown"
 
+
 def ip_allowed(req: Request) -> bool:
     if not ALLOWED_WEBHOOK_IPS:
         return True
     allowed = {ip.strip() for ip in ALLOWED_WEBHOOK_IPS.split(",") if ip.strip()}
     return get_client_ip(req) in allowed
+
 
 def rate_limit_ok(ip: str, limit: int = 40, window: int = 60) -> bool:
     now = time()
@@ -61,6 +62,7 @@ def rate_limit_ok(ip: str, limit: int = 40, window: int = 60) -> bool:
     _rate[ip] = arr
     return True
 
+
 def anti_fraud_guard(req: Request):
     ip = get_client_ip(req)
     if not rate_limit_ok(ip):
@@ -68,8 +70,8 @@ def anti_fraud_guard(req: Request):
     if not ip_allowed(req):
         raise HTTPException(status_code=403, detail="IP not allowed")
 
+
 def pay_buttons(pay_code: str, amount: int):
-    # Tugma linklari bo‘lsa ko‘rsatadi, bo‘lmasa ko‘rsatmaydi
     rows = []
     if PAYME_PAY_URL:
         rows.append([InlineKeyboardButton(text="💳 Payme orqali to‘lash", url=PAYME_PAY_URL)])
@@ -79,12 +81,14 @@ def pay_buttons(pay_code: str, amount: int):
         return None
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
+
 def plans_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"7 kun — {PLAN_PRICES_UZS[7]} so'm", callback_data="plan:7")],
         [InlineKeyboardButton(text=f"30 kun — {PLAN_PRICES_UZS[30]} so'm", callback_data="plan:30")],
         [InlineKeyboardButton(text=f"90 kun — {PLAN_PRICES_UZS[90]} so'm", callback_data="plan:90")],
     ])
+
 
 @dp.message(Command("start"))
 async def start_cmd(msg: Message):
@@ -95,6 +99,7 @@ async def start_cmd(msg: Message):
         "Tarifni tanlang 👇",
         reply_markup=plans_keyboard()
     )
+
 
 @dp.message(Command("help"))
 async def help_cmd(msg: Message):
@@ -110,7 +115,8 @@ async def help_cmd(msg: Message):
         "• Bot avtomatik guruh va kanal linkini yuboradi\n\n"
         "❓ Muammo bo‘lsa — adminga yozing"
     )
-    
+
+
 @dp.callback_query(F.data.startswith("plan:"))
 async def choose_plan(call):
     u = await ensure_user(call.from_user.id)
@@ -126,6 +132,7 @@ async def choose_plan(call):
         "To‘lov tasdiqlansa bot avtomatik link yuboradi.",
         reply_markup=kb
     )
+
 
 async def send_invites(tg_id: int):
     g = await bot.create_chat_invite_link(
@@ -146,6 +153,46 @@ async def send_invites(tg_id: int):
         "⏳ Linklar 1 soat amal qiladi va 1 martalik."
     )
 
+
+# ✅ 10 soniya tekshiruv: begona kirsa chiqaradi
+async def check_and_kick_if_no_subscription(chat_id: int, user_id: int):
+    await asyncio.sleep(10)
+
+    # Hali chat ichidami?
+    try:
+        cm = await bot.get_chat_member(chat_id, user_id)
+        if cm.status not in ("member", "administrator", "creator"):
+            return
+    except Exception:
+        return
+
+    # Obuna aktivmi?
+    async with Session() as s:
+        sub = await s.get(Subscription, user_id)
+
+    if not sub or not sub.active or sub.expires_at <= datetime.utcnow():
+        try:
+            await bot.ban_chat_member(chat_id, user_id)
+            await bot.unban_chat_member(chat_id, user_id)
+        except Exception:
+            pass
+
+
+# ✅ Guruh + kanalga kirganlarni ushlash
+@dp.chat_member()
+async def on_chat_member_update(event: ChatMemberUpdated):
+    chat_id = event.chat.id
+    if chat_id not in (GROUP_ID, CHANNEL_ID):
+        return
+
+    new_status = event.new_chat_member.status
+    if new_status not in ("member", "administrator"):
+        return
+
+    user_id = event.new_chat_member.user.id
+    asyncio.create_task(check_and_kick_if_no_subscription(chat_id, user_id))
+
+
 async def job_check_subs():
     subs = await get_active_subscriptions()
     now = datetime.utcnow()
@@ -161,6 +208,7 @@ async def job_check_subs():
                 await bot.ban_chat_member(CHANNEL_ID, sub.tg_id)
             except Exception:
                 pass
+
             await deactivate_subscription(sub.tg_id)
             try:
                 await bot.send_message(sub.tg_id, "❌ Obuna tugadi. /start bosing.")
@@ -172,19 +220,23 @@ async def job_check_subs():
             db_sub = await s.get(Subscription, sub.tg_id)
             if not db_sub:
                 continue
+
             if left <= timedelta(days=3) and not db_sub.warned_3d:
                 try:
                     await bot.send_message(sub.tg_id, "⏳ Obuna tugashiga 3 kun qoldi.")
                 except Exception:
                     pass
                 db_sub.warned_3d = True
+
             if left <= timedelta(days=1) and not db_sub.warned_1d:
                 try:
                     await bot.send_message(sub.tg_id, "⚠️ Obuna tugashiga 1 kun qoldi.")
                 except Exception:
                     pass
                 db_sub.warned_1d = True
+
             await s.commit()
+
 
 @app.post("/tg/webhook")
 async def telegram_webhook(req: Request):
@@ -192,6 +244,7 @@ async def telegram_webhook(req: Request):
     update = Update.model_validate(data)
     await dp.feed_update(bot, update)
     return {"ok": True}
+
 
 @app.post("/click/{token}")
 async def click_webhook(token: str, req: Request):
@@ -209,7 +262,7 @@ async def click_webhook(token: str, req: Request):
     click_trans_id = str(data.get("click_trans_id", "")).strip()
 
     raw_code = str(data.get("merchant_trans_id", "")).strip()
-    pay_code = re.sub(r"\D", "", raw_code)  # faqat raqam
+    pay_code = re.sub(r"\D", "", raw_code)
 
     amount_uzs = int(float(data.get("amount", 0)))
 
@@ -255,6 +308,7 @@ async def click_webhook(token: str, req: Request):
 
     return {"error": -3, "error_note": "Unknown action"}
 
+
 @app.post("/payme/{token}")
 async def payme_webhook(token: str, req: Request):
     if token != WEBHOOK_TOKEN:
@@ -273,9 +327,9 @@ async def payme_webhook(token: str, req: Request):
     def read_account():
         account = params.get("account", {}) or {}
         raw = str(account.get("user_id") or account.get("pay_code") or "").strip()
-        pay_code = re.sub(r"\D", "", raw)
-        plan_days = int(account.get("plan_days", 0) or 0)
-        return pay_code, plan_days
+        pay_code_ = re.sub(r"\D", "", raw)
+        plan_days_ = int(account.get("plan_days", 0) or 0)
+        return pay_code_, plan_days_
 
     amount_tiyin = int(params.get("amount", 0) or 0)
     amount_uzs = amount_tiyin // PAYME_AMOUNT_MULTIPLIER if amount_tiyin else 0
@@ -284,6 +338,7 @@ async def payme_webhook(token: str, req: Request):
         pay_code, plan_days = read_account()
         if not pay_code:
             return {"error": {"code": -31050, "message": "Empty PAY CODE"}}
+
         u = await get_user_by_pay_code(pay_code)
         if not u:
             return {"error": {"code": -31050, "message": "Invalid PAY CODE"}}
@@ -325,6 +380,7 @@ async def payme_webhook(token: str, req: Request):
 
     return {"error": {"code": -32601, "message": "Method not found"}}
 
+
 @app.on_event("startup")
 async def on_startup():
     async with engine.begin() as conn:
@@ -342,6 +398,7 @@ async def on_startup():
     scheduler.add_job(job_check_subs, "interval", hours=1)
     scheduler.start()
     app.state.scheduler = scheduler
+
 
 @app.on_event("shutdown")
 async def on_shutdown():
