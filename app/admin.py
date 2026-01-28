@@ -12,7 +12,7 @@ from aiogram.types import (
 from aiogram.types.input_file import BufferedInputFile
 from sqlalchemy import select
 
-from .config import ADMIN_ID
+from .config import ADMIN_IDS
 from .database import Session
 from .models import Subscription, Payment
 from .reports import build_payments_xlsx, payments_stats
@@ -89,8 +89,8 @@ def register_admin(dp):
     # =========================
     @dp.message(F.text == "/admin")
     async def admin_panel(msg: Message):
-        if msg.from_user.id != ADMIN_ID:
-            return
+        if msg.from_user.id not in ADMIN_IDS:
+    return
         await msg.answer(
             "👑 <b>Admin panel</b>\nPastdagi menyudan tanlang 👇",
             reply_markup=admin_reply_kb()
@@ -101,8 +101,8 @@ def register_admin(dp):
     # =========================
     @dp.message(F.text == "ℹ️ Buyruqlar")
     async def admin_help(msg: Message):
-        if msg.from_user.id != ADMIN_ID:
-            return
+        if msg.from_user.id not in ADMIN_IDS:
+    return
         await msg.answer(
             "👑 <b>Admin buyruqlari</b>\n\n"
             "/admin — admin panel\n"
@@ -119,8 +119,8 @@ def register_admin(dp):
     # =========================
     @dp.message(F.text == "🎁 Obuna berish")
     async def admin_give_hint(msg: Message):
-        if msg.from_user.id != ADMIN_ID:
-            return
+        if msg.from_user.id not in ADMIN_IDS:
+    return
         await msg.answer(
             "🎁 <b>Obuna berish</b>\n\n"
             "<code>/give USER_ID KUN</code>\n"
@@ -131,8 +131,8 @@ def register_admin(dp):
 
     @dp.message(F.text.startswith("/give"))
     async def give(msg: Message):
-        if msg.from_user.id != ADMIN_ID:
-            return
+        if msg.from_user.id not in ADMIN_IDS:
+    return
 
         parts = msg.text.split()
         if len(parts) != 3:
@@ -157,8 +157,8 @@ def register_admin(dp):
     # =========================
     @dp.message(F.text == "📊 To‘lovlar")
     async def payments(msg: Message):
-        if msg.from_user.id != ADMIN_ID:
-            return
+        if msg.from_user.id not in ADMIN_IDS:
+    return
 
         items = await load_last_30()
         if not items:
@@ -177,8 +177,8 @@ def register_admin(dp):
     # =========================
     @dp.message(F.text == "📈 Statistika")
     async def stats_entry(msg: Message):
-        if msg.from_user.id != ADMIN_ID:
-            return
+        if msg.from_user.id not in ADMIN_IDS:
+    return
         await msg.answer(
             "📈 <b>Statistika</b>\nTanlang 👇",
             reply_markup=stats_inline_kb()
@@ -189,8 +189,8 @@ def register_admin(dp):
     # =========================
     @dp.callback_query(F.data == "stats:today")
     async def stats_today(call: CallbackQuery):
-        if call.from_user.id != ADMIN_ID:
-            return
+        if msg.from_user.id not in ADMIN_IDS:
+    return
 
         start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         items = await load_payments_since(start)
@@ -208,8 +208,8 @@ def register_admin(dp):
 
     @dp.callback_query(F.data == "stats:30d")
     async def stats_30d(call: CallbackQuery):
-        if call.from_user.id != ADMIN_ID:
-            return
+        if msg.from_user.id not in ADMIN_IDS:
+    return
 
         start = datetime.utcnow() - timedelta(days=30)
         items = await load_payments_since(start)
@@ -230,8 +230,8 @@ def register_admin(dp):
     # =========================
     @dp.callback_query(F.data == "xlsx:today")
     async def xlsx_today(call: CallbackQuery):
-        if call.from_user.id != ADMIN_ID:
-            return
+        if msg.from_user.id not in ADMIN_IDS:
+    return
 
         start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         items = await load_payments_since(start)
@@ -247,8 +247,8 @@ def register_admin(dp):
 
     @dp.callback_query(F.data == "xlsx:30d")
     async def xlsx_30d(call: CallbackQuery):
-        if call.from_user.id != ADMIN_ID:
-            return
+        if msg.from_user.id not in ADMIN_IDS:
+    return
 
         start = datetime.utcnow() - timedelta(days=30)
         items = await load_payments_since(start)
@@ -267,8 +267,8 @@ def register_admin(dp):
     # =========================
     @dp.callback_query(F.data == "stats:back")
     async def stats_back(call: CallbackQuery):
-        if call.from_user.id != ADMIN_ID:
-            return
+        if msg.from_user.id not in ADMIN_IDS:
+    return
         await call.message.edit_text(
             "👑 <b>Admin panel</b>\nPastdagi menyudan tanlang 👇"
         )
