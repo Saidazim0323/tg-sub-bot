@@ -22,6 +22,8 @@ from .services import (
 )
 from .main import bot, dp, send_invites, setup_bot, start_scheduler, stop_bot
 from aiogram.types import Update
+from .main import setup_bot, start_scheduler
+
 
 app = FastAPI()
 _rate = {}
@@ -31,7 +33,11 @@ _rate = {}
 @app.get("/health")
 async def health():
     return {"ok": True}
-
+    
+@app.on_event("startup")
+async def on_startup():
+    setup_bot()
+    start_scheduler(app)
 
 # ------------------- antifraud -------------------
 def get_client_ip(req: Request) -> str:
