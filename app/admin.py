@@ -3,8 +3,20 @@ from aiogram.types import Message
 from .config import ADMIN_ID
 from .services import ensure_user, upsert_subscription, add_payment
 from .services import expected_amount_uzs
-
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 def register_admin(dp):
+    @dp.message(F.text == "/admin")
+async def admin_menu(msg: Message):
+    if msg.from_user.id != ADMIN_ID:
+        return
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 To‘lovlar", callback_data="admin:payments")],
+        [InlineKeyboardButton(text="🎁 Obuna berish", callback_data="admin:give")],
+        [InlineKeyboardButton(text="ℹ️ Buyruqlar", callback_data="admin:help")]
+    ])
+
+    await msg.answer("👑 <b>Admin panel</b>", reply_markup=kb)
     @dp.message(F.text.startswith("/give"))
     async def give(msg: Message):
         if msg.from_user.id != ADMIN_ID:
