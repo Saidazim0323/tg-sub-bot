@@ -5,7 +5,9 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+ADMIN_IDS = set(
+    int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()
+)
 GROUP_ID = int(os.getenv("GROUP_ID", "0"))
 CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
 
