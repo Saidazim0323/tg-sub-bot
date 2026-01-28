@@ -1,8 +1,8 @@
 import re
 from time import time
-from datetime import datetime
 
 from fastapi import FastAPI, Request, HTTPException
+from aiogram.types import Update
 
 from .config import (
     PUBLIC_BASE_URL, WEBHOOK_TOKEN,
@@ -21,8 +21,6 @@ from .services import (
     update_txn_state,
 )
 from .main import bot, dp, send_invites, setup_bot, start_scheduler, stop_bot
-from aiogram.types import Update
-from .main import setup_bot, start_scheduler
 
 
 app = FastAPI()
@@ -33,11 +31,7 @@ _rate = {}
 @app.get("/health")
 async def health():
     return {"ok": True}
-    
-@app.on_event("startup")
-async def on_startup():
-    setup_bot()
-    start_scheduler(app)
+
 
 # ------------------- antifraud -------------------
 def get_client_ip(req: Request) -> str:
@@ -204,12 +198,14 @@ async def payme_webhook(token: str, req: Request):
     return {"error": {"code": -32601, "message": "Method not found"}}
 
 
-# ------------------- startup/shutdown -------------------
+# ------------------- startup/shutdown (FAqat bitta!) -------------------
 @app.on_event("startup")
-async def on_startup():
+async def startup():
+    # DB init
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    # dp ga admin handlerlarni ulash
     setup_bot()
 
     # telegram webhook set
@@ -220,15 +216,17 @@ async def on_startup():
             drop_pending_updates=True
         )
 
+    # scheduler start
     start_scheduler(app)
 
 
 @app.on_event("shutdown")
-async def on_shutdown():
+async def shutdown():
     try:
         sch = getattr(app.state, "scheduler", None)
         if sch:
             sch.shutdown(wait=False)
     except Exception:
         pass
+
     await stop_bot()
