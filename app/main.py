@@ -58,20 +58,20 @@ def plans_keyboard():
 async def start_cmd(msg: Message):
     user_id = msg.from_user.id
 
-    # anti-spam (startni spam qilsa ham)
-    if not allow_message(user_id, delay=1.0):
-        return
+    # hamma uchun user record bo‘lsin (admin ham)
+    u = await ensure_user(user_id)
 
     # 👑 ADMIN
     if user_id in ADMIN_IDS:
         await msg.answer(
-            "👑 <b>Admin panel</b>\n\nPastdagi menyudan foydalaning 👇",
+            "👑 <b>Admin panel</b>\n\n"
+            f"🔐 Sizning PAY CODE: <code>{u.pay_code}</code>\n"
+            "Pastdagi menyudan foydalaning 👇",
             reply_markup=admin_reply_kb()
         )
         return
 
     # 👤 ODDIY USER
-    u = await ensure_user(user_id)
     await msg.answer(
         "💎 Pullik obuna\n\n"
         f"🔐 PAY CODE: <code>{u.pay_code}</code>\n\n"
