@@ -23,7 +23,11 @@ from .services import (
     expected_amount_uzs, normalize_plan_days,
 )
 from .models import Subscription
-
+from .antispam import allow_click, allow_message
+from .user_ui import user_reply_kb
+from .services import get_user_by_pay_code  # kerak bo‘lmasa olib tashlaysiz
+from sqlalchemy import select
+from .models import User, Subscription
 
 # ================= BOT / DP =================
 bot = Bot(BOT_TOKEN, parse_mode="HTML")
