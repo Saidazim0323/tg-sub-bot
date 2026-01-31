@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import List
 
 from aiogram import F
 from aiogram.types import (
@@ -49,7 +50,7 @@ def stats_inline_kb():
 # =========================
 # DB helpers
 # =========================
-async def load_payments_since(dt: datetime):
+async def load_payments_since(dt: datetime) -> List[Payment]:
     async with Session() as s:
         res = await s.execute(
             select(Payment)
@@ -59,15 +60,13 @@ async def load_payments_since(dt: datetime):
         return res.scalars().all()
 
 
-async def load_last_30():
+async def load_last_30() -> List[Payment]:
     async with Session() as s:
-        res = await s.execute(
-            select(Payment).order_by(Payment.id.desc()).limit(30)
-        )
+        res = await s.execute(select(Payment).order_by(Payment.id.desc()).limit(30))
         return res.scalars().all()
 
 
-def to_rows(items: list[Payment]):
+def to_rows(items: List[Payment]):
     return [{
         "id": p.id,
         "created_at": p.created_at,
@@ -81,6 +80,7 @@ def to_rows(items: list[Payment]):
 
 
 async def safe_edit_or_send(call: CallbackQuery, text: str, reply_markup=None):
+    # Edit qilishga urinamiz, bo‘lmasa yangi message yuboramiz
     try:
         await call.message.edit_text(text, reply_markup=reply_markup)
     except Exception:
@@ -99,6 +99,7 @@ def register_admin(dp):
             return
         if not allow_message(msg.from_user.id, delay=1.0):
             return
+
         await msg.answer(
             "👑 <b>Admin panel</b>\nPastdagi menyudan tanlang 👇",
             reply_markup=admin_reply_kb()
@@ -111,6 +112,7 @@ def register_admin(dp):
             return
         if not allow_message(msg.from_user.id, delay=0.8):
             return
+
         await msg.answer(
             "👑 <b>Admin buyruqlari</b>\n\n"
             "/admin — admin panel\n"
@@ -129,6 +131,7 @@ def register_admin(dp):
             return
         if not allow_message(msg.from_user.id, delay=0.8):
             return
+
         await msg.answer(
             "🎁 <b>Obuna berish</b>\n\n"
             "<code>/give USER_ID KUN</code>\n"
@@ -160,6 +163,7 @@ def register_admin(dp):
         async with Session() as s:
             sub = await s.get(Subscription, uid)
             now = datetime.utcnow()
+
             if sub and sub.active and sub.expires_at > now:
                 sub.expires_at = sub.expires_at + timedelta(days=days)
             else:
@@ -204,10 +208,7 @@ def register_admin(dp):
         if not allow_message(msg.from_user.id, delay=0.8):
             return
 
-        await msg.answer(
-            "📈 <b>Statistika</b>\nTanlang 👇",
-            reply_markup=stats_inline_kb()
-        )
+        await msg.answer("📈 <b>Statistika</b>\nTanlang 👇", reply_markup=stats_inline_kb())
 
     # --- STAT: today
     @dp.callback_query(F.data == "stats:today")
@@ -227,7 +228,7 @@ def register_admin(dp):
             "📈 <b>Bugungi statistika (UTC)</b>\n\n"
             f"ALL: {st['all']['count']} ta | {st['all']['sum']:,} so'm\n"
             f"PAYME: {st['payme']['count']} ta | {st['payme']['sum']:,} so'm\n"
-            f"CLICK: {st['click']['count']} ta | {st['click']['sum']:,} so'm\n"
+            f"CLICK: {st['click']['count']} ta | {st['click']['sum']:,} so'm"
         )
 
         await safe_edit_or_send(call, text, reply_markup=stats_inline_kb())
@@ -251,7 +252,7 @@ def register_admin(dp):
             "📈 <b>Oxirgi 30 kun statistika (UTC)</b>\n\n"
             f"ALL: {st['all']['count']} ta | {st['all']['sum']:,} so'm\n"
             f"PAYME: {st['payme']['count']} ta | {st['payme']['sum']:,} so'm\n"
-            f"CLICK: {st['click']['count']} ta | {st['click']['sum']:,} so'm\n"
+            f"CLICK: {st['click']['count']} ta | {st['click']['sum']:,} so'm"
         )
 
         await safe_edit_or_send(call, text, reply_markup=stats_inline_kb())
@@ -269,6 +270,7 @@ def register_admin(dp):
 
         start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         items = await load_payments_since(start)
+
         data = build_payments_xlsx(to_rows(items), "Today")
         fname = f"payments_today_{datetime.utcnow():%Y%m%d_%H%M}.xlsx"
 
@@ -290,6 +292,7 @@ def register_admin(dp):
 
         start = datetime.utcnow() - timedelta(days=30)
         items = await load_payments_since(start)
+
         data = build_payments_xlsx(to_rows(items), "Last 30 days")
         fname = f"payments_30d_{datetime.utcnow():%Y%m%d_%H%M}.xlsx"
 
