@@ -18,6 +18,9 @@ from .models import Subscription, Payment
 from .reports import build_payments_xlsx, payments_stats
 from .antispam import allow_click, allow_message
 
+if not allow_click(call.from_user.id, delay=1.5):
+    await call.answer("⏳", show_alert=False)
+    return
 # =========================
 # Pastki ADMIN MENU (doim turadi)
 # =========================
