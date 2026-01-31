@@ -80,8 +80,11 @@ def to_rows(items: list[Payment]):
     } for p in items]
 
 
-def _is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+async def safe_edit_or_send(call: CallbackQuery, text: str, reply_markup=None):
+    try:
+        await call.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        await call.message.answer(text, reply_markup=reply_markup)
 
 
 # =========================
@@ -89,31 +92,25 @@ def _is_admin(user_id: int) -> bool:
 # =========================
 def register_admin(dp):
 
-    # =========================
-    # /admin (panelni chiqaradi)
-    # =========================
+    # /admin
     @dp.message(F.text == "/admin")
     async def admin_panel(msg: Message):
-        if not _is_admin(msg.from_user.id):
+        if msg.from_user.id not in ADMIN_IDS:
             return
         if not allow_message(msg.from_user.id, delay=1.0):
             return
-
         await msg.answer(
             "👑 <b>Admin panel</b>\nPastdagi menyudan tanlang 👇",
             reply_markup=admin_reply_kb()
         )
 
-    # =========================
-    # BUYRUQLAR
-    # =========================
+    # Buyruqlar
     @dp.message(F.text == "ℹ️ Buyruqlar")
     async def admin_help(msg: Message):
-        if not _is_admin(msg.from_user.id):
+        if msg.from_user.id not in ADMIN_IDS:
             return
-        if not allow_message(msg.from_user.id, delay=1.0):
+        if not allow_message(msg.from_user.id, delay=0.8):
             return
-
         await msg.answer(
             "👑 <b>Admin buyruqlari</b>\n\n"
             "/admin — admin panel\n"
@@ -125,16 +122,13 @@ def register_admin(dp):
             reply_markup=admin_reply_kb()
         )
 
-    # =========================
-    # OBUNA BERISH (yo‘riqnoma)
-    # =========================
+    # Obuna berish hint
     @dp.message(F.text == "🎁 Obuna berish")
     async def admin_give_hint(msg: Message):
-        if not _is_admin(msg.from_user.id):
+        if msg.from_user.id not in ADMIN_IDS:
             return
-        if not allow_message(msg.from_user.id, delay=1.0):
+        if not allow_message(msg.from_user.id, delay=0.8):
             return
-
         await msg.answer(
             "🎁 <b>Obuna berish</b>\n\n"
             "<code>/give USER_ID KUN</code>\n"
@@ -143,12 +137,10 @@ def register_admin(dp):
             reply_markup=admin_reply_kb()
         )
 
-    # =========================
     # /give USER_ID DAYS
-    # =========================
     @dp.message(F.text.startswith("/give"))
     async def give(msg: Message):
-        if not _is_admin(msg.from_user.id):
+        if msg.from_user.id not in ADMIN_IDS:
             return
         if not allow_message(msg.from_user.id, delay=1.0):
             return
@@ -168,31 +160,29 @@ def register_admin(dp):
         async with Session() as s:
             sub = await s.get(Subscription, uid)
             now = datetime.utcnow()
-            exp = now + timedelta(days=days)
-
-            if sub:
-                sub.expires_at = exp
-                sub.active = True
-                sub.warned_3d = False
-                sub.warned_1d = False
+            if sub and sub.active and sub.expires_at > now:
+                sub.expires_at = sub.expires_at + timedelta(days=days)
             else:
-                s.add(Subscription(
-                    tg_id=uid,
-                    expires_at=exp,
-                    active=True
-                ))
+                if not sub:
+                    sub = Subscription(tg_id=uid, expires_at=now + timedelta(days=days), active=True)
+                    s.add(sub)
+                else:
+                    sub.expires_at = now + timedelta(days=days)
+                    sub.active = True
+                    sub.warned_3d = False
+                    sub.warned_1d = False
+                    sub.last_renewal_notice = None
+
             await s.commit()
 
-        await msg.answer(f"✅ Obuna berildi: {uid} ({days} kun)", reply_markup=admin_reply_kb())
+        await msg.answer("✅ Obuna berildi", reply_markup=admin_reply_kb())
 
-    # =========================
-    # TO‘LOVLAR (oxirgi 30 ta)
-    # =========================
+    # To‘lovlar (oxirgi 30)
     @dp.message(F.text == "📊 To‘lovlar")
     async def payments(msg: Message):
-        if not _is_admin(msg.from_user.id):
+        if msg.from_user.id not in ADMIN_IDS:
             return
-        if not allow_message(msg.from_user.id, delay=1.0):
+        if not allow_message(msg.from_user.id, delay=0.8):
             return
 
         items = await load_last_30()
@@ -204,19 +194,14 @@ def register_admin(dp):
             f"{p.created_at:%m-%d %H:%M} | {p.tg_id} | {p.provider} | {p.amount} so'm | {p.status}"
             for p in items
         )
-        await msg.answer(
-            "📊 <b>Oxirgi 30 ta to‘lov</b>\n\n" + text,
-            reply_markup=admin_reply_kb()
-        )
+        await msg.answer("📊 <b>Oxirgi 30 ta to‘lov</b>\n\n" + text, reply_markup=admin_reply_kb())
 
-    # =========================
-    # STATISTIKA (entry)
-    # =========================
+    # Statistika entry
     @dp.message(F.text == "📈 Statistika")
     async def stats_entry(msg: Message):
-        if not _is_admin(msg.from_user.id):
+        if msg.from_user.id not in ADMIN_IDS:
             return
-        if not allow_message(msg.from_user.id, delay=1.0):
+        if not allow_message(msg.from_user.id, delay=0.8):
             return
 
         await msg.answer(
@@ -224,15 +209,13 @@ def register_admin(dp):
             reply_markup=stats_inline_kb()
         )
 
-    # =========================
-    # CALLBACKS: STATISTIKA BUGUN
-    # =========================
+    # --- STAT: today
     @dp.callback_query(F.data == "stats:today")
     async def stats_today(call: CallbackQuery):
-        if not _is_admin(call.from_user.id):
+        if call.from_user.id not in ADMIN_IDS:
             await call.answer("Ruxsat yo‘q", show_alert=True)
             return
-        if not allow_click(call.from_user.id, delay=1.2):
+        if not allow_click(call.from_user.id, delay=1.5):
             await call.answer("⏳", show_alert=False)
             return
 
@@ -244,20 +227,19 @@ def register_admin(dp):
             "📈 <b>Bugungi statistika (UTC)</b>\n\n"
             f"ALL: {st['all']['count']} ta | {st['all']['sum']:,} so'm\n"
             f"PAYME: {st['payme']['count']} ta | {st['payme']['sum']:,} so'm\n"
-            f"CLICK: {st['click']['count']} ta | {st['click']['sum']:,} so'm"
+            f"CLICK: {st['click']['count']} ta | {st['click']['sum']:,} so'm\n"
         )
-        await call.message.edit_text(text, reply_markup=stats_inline_kb())
+
+        await safe_edit_or_send(call, text, reply_markup=stats_inline_kb())
         await call.answer()
 
-    # =========================
-    # CALLBACKS: STATISTIKA 30 KUN
-    # =========================
+    # --- STAT: 30d
     @dp.callback_query(F.data == "stats:30d")
     async def stats_30d(call: CallbackQuery):
-        if not _is_admin(call.from_user.id):
+        if call.from_user.id not in ADMIN_IDS:
             await call.answer("Ruxsat yo‘q", show_alert=True)
             return
-        if not allow_click(call.from_user.id, delay=1.2):
+        if not allow_click(call.from_user.id, delay=1.5):
             await call.answer("⏳", show_alert=False)
             return
 
@@ -269,17 +251,16 @@ def register_admin(dp):
             "📈 <b>Oxirgi 30 kun statistika (UTC)</b>\n\n"
             f"ALL: {st['all']['count']} ta | {st['all']['sum']:,} so'm\n"
             f"PAYME: {st['payme']['count']} ta | {st['payme']['sum']:,} so'm\n"
-            f"CLICK: {st['click']['count']} ta | {st['click']['sum']:,} so'm"
+            f"CLICK: {st['click']['count']} ta | {st['click']['sum']:,} so'm\n"
         )
-        await call.message.edit_text(text, reply_markup=stats_inline_kb())
+
+        await safe_edit_or_send(call, text, reply_markup=stats_inline_kb())
         await call.answer()
 
-    # =========================
-    # EXCEL (BUGUN)
-    # =========================
+    # --- XLSX today
     @dp.callback_query(F.data == "xlsx:today")
     async def xlsx_today(call: CallbackQuery):
-        if not _is_admin(call.from_user.id):
+        if call.from_user.id not in ADMIN_IDS:
             await call.answer("Ruxsat yo‘q", show_alert=True)
             return
         if not allow_click(call.from_user.id, delay=2.0):
@@ -288,7 +269,6 @@ def register_admin(dp):
 
         start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         items = await load_payments_since(start)
-
         data = build_payments_xlsx(to_rows(items), "Today")
         fname = f"payments_today_{datetime.utcnow():%Y%m%d_%H%M}.xlsx"
 
@@ -298,12 +278,10 @@ def register_admin(dp):
         )
         await call.answer()
 
-    # =========================
-    # EXCEL (30 KUN)
-    # =========================
+    # --- XLSX 30d
     @dp.callback_query(F.data == "xlsx:30d")
     async def xlsx_30d(call: CallbackQuery):
-        if not _is_admin(call.from_user.id):
+        if call.from_user.id not in ADMIN_IDS:
             await call.answer("Ruxsat yo‘q", show_alert=True)
             return
         if not allow_click(call.from_user.id, delay=2.0):
@@ -312,7 +290,6 @@ def register_admin(dp):
 
         start = datetime.utcnow() - timedelta(days=30)
         items = await load_payments_since(start)
-
         data = build_payments_xlsx(to_rows(items), "Last 30 days")
         fname = f"payments_30d_{datetime.utcnow():%Y%m%d_%H%M}.xlsx"
 
@@ -322,20 +299,15 @@ def register_admin(dp):
         )
         await call.answer()
 
-    # =========================
-    # BACK (statistika menyusiga qaytadi)
-    # =========================
+    # Back
     @dp.callback_query(F.data == "stats:back")
     async def stats_back(call: CallbackQuery):
-        if not _is_admin(call.from_user.id):
+        if call.from_user.id not in ADMIN_IDS:
             await call.answer("Ruxsat yo‘q", show_alert=True)
             return
         if not allow_click(call.from_user.id, delay=1.0):
             await call.answer("⏳", show_alert=False)
             return
 
-        await call.message.edit_text(
-            "📈 <b>Statistika</b>\nTanlang 👇",
-            reply_markup=stats_inline_kb()
-        )
+        await safe_edit_or_send(call, "📈 <b>Statistika</b>\nTanlang 👇", reply_markup=stats_inline_kb())
         await call.answer()
