@@ -18,7 +18,7 @@ from .models import Subscription, Payment
 from .reports import build_payments_xlsx, payments_stats
 from .antispam import allow_click, allow_message
 from .services import ensure_user, list_payments_since
-
+from .services import ensure_user
 
 # =========================
 # Pastki ADMIN MENU (doim turadi)
@@ -80,6 +80,20 @@ def register_admin(dp):
             reply_markup=admin_reply_kb()
         )
 
+
+      @dp.message(F.text == "👑 Mening PAY CODE")
+      async def admin_my_paycode(msg: Message):
+         if msg.from_user.id not in ADMIN_IDS:
+             return
+         if not allow_message(msg.from_user.id, delay=0.8):
+             return
+
+    u = await ensure_user(msg.from_user.id)
+    await msg.answer(
+        "👑 <b>Mening PAY CODE</b>\n\n"
+        f"🔐 PAY CODE: <code>{u.pay_code}</code>",
+        reply_markup=admin_reply_kb()
+    )
     # Buyruqlar
     @dp.message(F.text == "ℹ️ Buyruqlar")
     async def admin_help(msg: Message):
