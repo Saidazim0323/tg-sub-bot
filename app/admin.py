@@ -18,7 +18,7 @@ from .models import Subscription, Payment
 from .reports import build_payments_xlsx, payments_stats
 from .antispam import allow_click, allow_message
 from .services import ensure_user, list_payments_since
-from .services import ensure_user
+
 
 # =========================
 # Pastki ADMIN MENU (doim turadi)
@@ -39,13 +39,15 @@ def admin_reply_kb():
 # Statistika INLINE menu
 # =========================
 def stats_inline_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📈 Bugun", callback_data="stats:today")],
-        [InlineKeyboardButton(text="📈 30 kun", callback_data="stats:30d")],
-        [InlineKeyboardButton(text="📄 Excel (Bugun)", callback_data="xlsx:today")],
-        [InlineKeyboardButton(text="📄 Excel (30 kun)", callback_data="xlsx:30d")],
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="stats:back")],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📈 Bugun", callback_data="stats:today")],
+            [InlineKeyboardButton(text="📈 30 kun", callback_data="stats:30d")],
+            [InlineKeyboardButton(text="📄 Excel (Bugun)", callback_data="xlsx:today")],
+            [InlineKeyboardButton(text="📄 Excel (30 kun)", callback_data="xlsx:30d")],
+            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="stats:back")],
+        ]
+    )
 
 
 async def safe_edit_or_send(call: CallbackQuery, text: str, reply_markup=None):
@@ -80,20 +82,21 @@ def register_admin(dp):
             reply_markup=admin_reply_kb()
         )
 
+    # 👑 Mening PAY CODE (ADMIN)
+    @dp.message(F.text == "👑 Mening PAY CODE")
+    async def admin_my_paycode(msg: Message):
+        if msg.from_user.id not in ADMIN_IDS:
+            return
+        if not allow_message(msg.from_user.id, delay=0.8):
+            return
 
-      @dp.message(F.text == "👑 Mening PAY CODE")
-      async def admin_my_paycode(msg: Message):
-         if msg.from_user.id not in ADMIN_IDS:
-             return
-         if not allow_message(msg.from_user.id, delay=0.8):
-             return
+        u = await ensure_user(msg.from_user.id)
+        await msg.answer(
+            "👑 <b>Admin PAY CODE</b>\n\n"
+            f"🔐 Sizning PAY CODE: <code>{u.pay_code}</code>",
+            reply_markup=admin_reply_kb()
+        )
 
-    u = await ensure_user(msg.from_user.id)
-    await msg.answer(
-        "👑 <b>Mening PAY CODE</b>\n\n"
-        f"🔐 PAY CODE: <code>{u.pay_code}</code>",
-        reply_markup=admin_reply_kb()
-    )
     # Buyruqlar
     @dp.message(F.text == "ℹ️ Buyruqlar")
     async def admin_help(msg: Message):
@@ -110,22 +113,6 @@ def register_admin(dp):
             "📊 To‘lovlar\n"
             "📈 Statistika\n"
             "👑 Mening PAY CODE",
-            reply_markup=admin_reply_kb()
-        )
-
-    # Admin paycode
-    @dp.message(F.text == "👑 Mening PAY CODE")
-    async def admin_my_paycode(msg: Message):
-        if msg.from_user.id not in ADMIN_IDS:
-            return
-        if not allow_message(msg.from_user.id, delay=0.8):
-            return
-
-        u = await ensure_user(msg.from_user.id)
-        await msg.answer(
-            "👑 <b>Admin PAY CODE</b>\n\n"
-            f"🔐 Sizning PAY CODE: <code>{u.pay_code}</code>\n\n"
-            "⚠️ Bu kod 1 marta yaratiladi va o‘zgarmaydi.",
             reply_markup=admin_reply_kb()
         )
 
@@ -211,7 +198,6 @@ def register_admin(dp):
             return
         if not allow_message(msg.from_user.id, delay=0.8):
             return
-
         await msg.answer("📈 <b>Statistika</b>\nTanlang 👇", reply_markup=stats_inline_kb())
 
     # STAT: today
@@ -225,7 +211,7 @@ def register_admin(dp):
             return
 
         start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        rows = await list_payments_since(start)  # pay_code bilan
+        rows = await list_payments_since(start)
         st = payments_stats(rows)
 
         text = (
