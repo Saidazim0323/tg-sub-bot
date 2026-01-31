@@ -11,7 +11,7 @@ BOT_TOKEN = (os.getenv("BOT_TOKEN", "") or "").strip()
 
 # ADMIN_IDS="123,456"
 _admin_raw = (os.getenv("ADMIN_IDS", "") or "").strip()
-ADMIN_IDS = {int(x.strip()) for x in _admin_raw.split(",") if x.strip().isdigit()}
+ADMIN_IDS = set(int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip())
 
 GROUP_ID = _get_int("GROUP_ID", 0)
 CHANNEL_ID = _get_int("CHANNEL_ID", 0)
