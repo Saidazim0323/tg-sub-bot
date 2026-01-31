@@ -17,7 +17,7 @@ from .database import Session
 from .models import Subscription, Payment
 from .reports import build_payments_xlsx, payments_stats
 from .antispam import allow_click, allow_message
-
+from .services import ensure_user
 # ✅ pay_code chiqishi uchun Payment+User join qiladigan service
 from .services import list_payments_since
 
@@ -28,13 +28,21 @@ from .services import list_payments_since
 def admin_reply_kb():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🎁 Obuna berish"), KeyboardButton(text="📊 To‘lovlar")],
-            [KeyboardButton(text="📈 Statistika"), KeyboardButton(text="ℹ️ Buyruqlar")],
+            [
+                KeyboardButton(text="🎁 Obuna berish"),
+                KeyboardButton(text="📊 To‘lovlar"),
+            ],
+            [
+                KeyboardButton(text="📈 Statistika"),
+                KeyboardButton(text="ℹ️ Buyruqlar"),
+            ],
+            [
+                KeyboardButton(text="👑 Mening PAY CODE"),
+            ],
         ],
         resize_keyboard=True,
         is_persistent=True,
     )
-
 
 # =========================
 # Statistika INLINE menu
@@ -92,6 +100,20 @@ async def safe_edit_or_send(call: CallbackQuery, text: str, reply_markup=None):
 # =========================
 def register_admin(dp):
 
+
+@dp.message(F.text == "👑 Mening PAY CODE")
+async def admin_my_paycode(msg: Message):
+    if msg.from_user.id not in ADMIN_IDS:
+        return
+
+    u = await ensure_user(msg.from_user.id)
+
+    await msg.answer(
+        "👑 <b>Admin PAY CODE</b>\n\n"
+        f"🔐 Sizning PAY CODE: <code>{u.pay_code}</code>\n\n"
+        "⚠️ Bu kod umrbod o‘zgarmaydi",
+        reply_markup=admin_reply_kb()
+    )
     # -------------------------
     # /admin
     # -------------------------
