@@ -152,7 +152,6 @@ async def payme_webhook(token: str, req: Request):
     method = data.get("method")
     params = data.get("params", {}) or {}
 
-    # pay_code o‘qish
     account = params.get("account", {}) or {}
     raw = str(account.get("pay_code") or account.get("user_id") or "").strip()
     pay_code = re.sub(r"\D", "", raw)
@@ -198,25 +197,29 @@ async def payme_webhook(token: str, req: Request):
     return {"error": {"code": -32601, "message": "Method not found"}}
 
 
-# ------------------- startup/shutdown (FAqat bitta!) -------------------
+# ------------------- startup/shutdown -------------------
 @app.on_event("startup")
 async def startup():
-    # DB init
+    # 1) DB init
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # dp ga admin handlerlarni ulash
+    # 2) dp ga handlerlarni ulash
     setup_bot()
 
-    # telegram webhook set
+    # 3) Telegram webhook set (MUHIM: try/except!)
     if PUBLIC_BASE_URL:
-        await bot.set_webhook(
-            f"{PUBLIC_BASE_URL}/tg/webhook",
-            allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"],
-            drop_pending_updates=True
-        )
+        try:
+            await bot.set_webhook(
+                f"{PUBLIC_BASE_URL}/tg/webhook",
+                allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"],
+                drop_pending_updates=True
+            )
+        except Exception as e:
+            # Xato bo‘lsa ham server yiqilmasin:
+            print("WEBHOOK SET ERROR:", repr(e))
 
-    # scheduler start
+    # 4) scheduler
     start_scheduler(app)
 
 
