@@ -1,3 +1,4 @@
+# app/main.py
 import asyncio
 from datetime import datetime, timedelta
 
@@ -30,7 +31,6 @@ from .antispam import allow_click, allow_message
 from .user_ui import user_reply_kb
 
 
-# ================= BOT / DP =================
 bot = Bot(BOT_TOKEN, parse_mode="HTML")
 dp = Dispatcher()
 
@@ -58,34 +58,32 @@ def plans_keyboard():
 async def start_cmd(msg: Message):
     user_id = msg.from_user.id
 
-    # hamma uchun user record bo‘lsin (admin ham)
-    u = await ensure_user(user_id)
+    if not allow_message(user_id, delay=1.0):
+        return
 
-    # 👑 ADMIN
+    # ADMIN
     if user_id in ADMIN_IDS:
         await msg.answer(
-            "👑 <b>Admin panel</b>\n\n"
-            f"🔐 Sizning PAY CODE: <code>{u.pay_code}</code>\n"
-            "Pastdagi menyudan foydalaning 👇",
+            "👑 <b>Admin panel</b>\n\nPastdagi menyudan foydalaning 👇",
             reply_markup=admin_reply_kb()
         )
         return
 
-    # 👤 ODDIY USER
-u = await ensure_user(user_id)
-await msg.answer(
-    "💎 Pullik obuna\n\n"
-    f"🔐 PAY CODE: <code>{u.pay_code}</code>\n\n"
-    "Pastdagi menyudan foydalaning 👇",
-    reply_markup=user_reply_kb()
-)
-await msg.answer("Tarifni tanlang 👇", reply_markup=plans_keyboard())
+    # USER
+    u = await ensure_user(user_id)
+    await msg.answer(
+        "💎 Pullik obuna\n\n"
+        f"🔐 PAY CODE: <code>{u.pay_code}</code>\n\n"
+        "Pastdagi menyudan foydalaning 👇",
+        reply_markup=user_reply_kb()
+    )
+    await msg.answer("Tarifni tanlang 👇", reply_markup=plans_keyboard())
 
 
-# ================= USER MENU (pastki menyu) =================
+# ================= USER MENU =================
 @dp.message(F.text == "💳 To‘lov qilish")
 async def menu_pay(msg: Message):
-    if not allow_message(msg.from_user.id, delay=1.5):
+    if not allow_message(msg.from_user.id, delay=1.2):
         return
     u = await ensure_user(msg.from_user.id)
     await msg.answer(
@@ -97,7 +95,7 @@ async def menu_pay(msg: Message):
 
 @dp.message(F.text == "👤 Obunam")
 async def menu_my_sub(msg: Message):
-    if not allow_message(msg.from_user.id, delay=1.5):
+    if not allow_message(msg.from_user.id, delay=1.2):
         return
 
     async with Session() as s:
@@ -113,7 +111,7 @@ async def menu_my_sub(msg: Message):
 
     await msg.answer(
         "✅ <b>Obuna faol</b>\n\n"
-        f"🗓 Tugash vaqti: {sub.expires_at:%Y-%m-%d %H:%M} UTC\n"
+        f"🗓 Tugash vaqti (UTC): {sub.expires_at:%Y-%m-%d %H:%M}\n"
         f"⏳ Qoldi: {days} kun {hours} soat",
         reply_markup=user_reply_kb()
     )
@@ -121,7 +119,7 @@ async def menu_my_sub(msg: Message):
 
 @dp.message(F.text == "🔄 Yangilash")
 async def menu_renew(msg: Message):
-    if not allow_message(msg.from_user.id, delay=1.5):
+    if not allow_message(msg.from_user.id, delay=1.2):
         return
     u = await ensure_user(msg.from_user.id)
     await msg.answer(
@@ -133,7 +131,7 @@ async def menu_renew(msg: Message):
 
 @dp.message(F.text == "ℹ️ Yordam")
 async def menu_help(msg: Message):
-    if not allow_message(msg.from_user.id, delay=1.5):
+    if not allow_message(msg.from_user.id, delay=1.2):
         return
     u = await ensure_user(msg.from_user.id)
     await msg.answer(
@@ -150,9 +148,8 @@ async def menu_help(msg: Message):
 # ================= PLAN TANLASH =================
 @dp.callback_query(F.data.startswith("plan:"))
 async def choose_plan(call):
-    # anti-spam: tugmani qayta-qayta bosmasin
     if not allow_click(call.from_user.id, delay=2.0):
-        await call.answer("⏳ Sekinroq 🙂", show_alert=True)
+        await call.answer("⏳ Sekinroq 🙂", show_alert=False)
         return
 
     u = await ensure_user(call.from_user.id)
@@ -173,13 +170,11 @@ async def choose_plan(call):
 # ================= INVITES =================
 async def send_invites(tg_id: int):
     g = await bot.create_chat_invite_link(
-        GROUP_ID,
-        member_limit=1,
+        GROUP_ID, member_limit=1,
         expire_date=datetime.utcnow() + timedelta(hours=1)
     )
     c = await bot.create_chat_invite_link(
-        CHANNEL_ID,
-        member_limit=1,
+        CHANNEL_ID, member_limit=1,
         expire_date=datetime.utcnow() + timedelta(hours=1)
     )
     await bot.send_message(
@@ -195,7 +190,6 @@ async def send_invites(tg_id: int):
 async def check_and_kick_if_no_subscription(chat_id: int, user_id: int):
     await asyncio.sleep(10)
 
-    # hali chat ichidami?
     try:
         cm = await bot.get_chat_member(chat_id, user_id)
         if cm.status not in ("member", "administrator", "creator"):
@@ -203,7 +197,6 @@ async def check_and_kick_if_no_subscription(chat_id: int, user_id: int):
     except Exception:
         return
 
-    # obuna bormi?
     async with Session() as s:
         sub = await s.get(Subscription, user_id)
 
@@ -224,17 +217,10 @@ async def on_chat_member_update(event: ChatMemberUpdated):
     old = event.old_chat_member.status
     new = event.new_chat_member.status
 
-    # faqat kirish payti
     if old in ("left", "kicked") and new in ("member", "administrator"):
-        asyncio.create_task(
-            check_and_kick_if_no_subscription(
-                event.chat.id,
-                event.new_chat_member.user.id
-            )
-        )
+        asyncio.create_task(check_and_kick_if_no_subscription(event.chat.id, event.new_chat_member.user.id))
 
 
-# BACKUP: Guruhda ba’zida chat_member kelmay qoladi -> message orqali keladi
 @dp.message(F.new_chat_members)
 async def on_new_members(msg: Message):
     if msg.chat.id != GROUP_ID:
@@ -260,7 +246,6 @@ async def job_check_subs():
 
 # ================= STARTUP =================
 def setup_bot():
-    """api.py startup paytida CHAQRILISHI SHART"""
     register_admin(dp)
 
 
