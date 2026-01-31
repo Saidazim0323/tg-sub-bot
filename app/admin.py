@@ -1,5 +1,5 @@
+# app/admin.py
 from datetime import datetime, timedelta
-from typing import List
 
 from aiogram import F
 from aiogram.types import (
@@ -11,13 +11,15 @@ from aiogram.types import (
     KeyboardButton,
 )
 from aiogram.types.input_file import BufferedInputFile
-from sqlalchemy import select
 
 from .config import ADMIN_IDS
 from .database import Session
 from .models import Subscription, Payment
 from .reports import build_payments_xlsx, payments_stats
 from .antispam import allow_click, allow_message
+
+# ✅ pay_code chiqishi uchun Payment+User join qiladigan service
+from .services import list_payments_since
 
 
 # =========================
@@ -50,37 +52,35 @@ def stats_inline_kb():
 # =========================
 # DB helpers
 # =========================
-async def load_payments_since(dt: datetime) -> List[Payment]:
+async def load_last_30_simple():
+    """Oxirgi 30 ta to‘lov (pay_code shart emas)"""
     async with Session() as s:
-        res = await s.execute(
-            select(Payment)
-            .where(Payment.created_at >= dt)
-            .order_by(Payment.created_at.desc())
-        )
-        return res.scalars().all()
-
-
-async def load_last_30() -> List[Payment]:
-    async with Session() as s:
+        # select(Payment) ishlatamiz (SQLAlchemy 2.0 style)
+        from sqlalchemy import select
         res = await s.execute(select(Payment).order_by(Payment.id.desc()).limit(30))
         return res.scalars().all()
 
 
-def to_rows(items: List[Payment]):
-    return [{
-        "id": p.id,
-        "created_at": p.created_at,
-        "tg_id": p.tg_id,
-        "provider": p.provider,
-        "amount": p.amount,
-        "status": p.status,
-        "plan_days": p.plan_days,
-        "ext_id": p.ext_id,
-    } for p in items]
+def to_rows_simple(items: list[Payment]):
+    """Payment obyektidan dict (pay_code yo‘q)"""
+    out = []
+    for p in items:
+        out.append({
+            "id": p.id,
+            "created_at": p.created_at,
+            "tg_id": p.tg_id,
+            "pay_code": None,
+            "provider": p.provider,
+            "amount": p.amount,
+            "status": p.status,
+            "plan_days": p.plan_days,
+            "ext_id": p.ext_id,
+        })
+    return out
 
 
 async def safe_edit_or_send(call: CallbackQuery, text: str, reply_markup=None):
-    # Edit qilishga urinamiz, bo‘lmasa yangi message yuboramiz
+    """edit_text xato bersa ham javob qaytaradi"""
     try:
         await call.message.edit_text(text, reply_markup=reply_markup)
     except Exception:
@@ -92,7 +92,9 @@ async def safe_edit_or_send(call: CallbackQuery, text: str, reply_markup=None):
 # =========================
 def register_admin(dp):
 
+    # -------------------------
     # /admin
+    # -------------------------
     @dp.message(F.text == "/admin")
     async def admin_panel(msg: Message):
         if msg.from_user.id not in ADMIN_IDS:
@@ -105,7 +107,9 @@ def register_admin(dp):
             reply_markup=admin_reply_kb()
         )
 
+    # -------------------------
     # Buyruqlar
+    # -------------------------
     @dp.message(F.text == "ℹ️ Buyruqlar")
     async def admin_help(msg: Message):
         if msg.from_user.id not in ADMIN_IDS:
@@ -124,7 +128,9 @@ def register_admin(dp):
             reply_markup=admin_reply_kb()
         )
 
-    # Obuna berish hint
+    # -------------------------
+    # Obuna berish (hint)
+    # -------------------------
     @dp.message(F.text == "🎁 Obuna berish")
     async def admin_give_hint(msg: Message):
         if msg.from_user.id not in ADMIN_IDS:
@@ -140,7 +146,9 @@ def register_admin(dp):
             reply_markup=admin_reply_kb()
         )
 
+    # -------------------------
     # /give USER_ID DAYS
+    # -------------------------
     @dp.message(F.text.startswith("/give"))
     async def give(msg: Message):
         if msg.from_user.id not in ADMIN_IDS:
@@ -160,10 +168,10 @@ def register_admin(dp):
             await msg.answer("Xato: USER_ID va KUN raqam bo‘lishi kerak.", reply_markup=admin_reply_kb())
             return
 
+        now = datetime.utcnow()
+
         async with Session() as s:
             sub = await s.get(Subscription, uid)
-            now = datetime.utcnow()
-
             if sub and sub.active and sub.expires_at > now:
                 sub.expires_at = sub.expires_at + timedelta(days=days)
             else:
@@ -181,7 +189,9 @@ def register_admin(dp):
 
         await msg.answer("✅ Obuna berildi", reply_markup=admin_reply_kb())
 
+    # -------------------------
     # To‘lovlar (oxirgi 30)
+    # -------------------------
     @dp.message(F.text == "📊 To‘lovlar")
     async def payments(msg: Message):
         if msg.from_user.id not in ADMIN_IDS:
@@ -189,7 +199,7 @@ def register_admin(dp):
         if not allow_message(msg.from_user.id, delay=0.8):
             return
 
-        items = await load_last_30()
+        items = await load_last_30_simple()
         if not items:
             await msg.answer("📊 To‘lovlar yo‘q", reply_markup=admin_reply_kb())
             return
@@ -200,7 +210,9 @@ def register_admin(dp):
         )
         await msg.answer("📊 <b>Oxirgi 30 ta to‘lov</b>\n\n" + text, reply_markup=admin_reply_kb())
 
+    # -------------------------
     # Statistika entry
+    # -------------------------
     @dp.message(F.text == "📈 Statistika")
     async def stats_entry(msg: Message):
         if msg.from_user.id not in ADMIN_IDS:
@@ -210,7 +222,9 @@ def register_admin(dp):
 
         await msg.answer("📈 <b>Statistika</b>\nTanlang 👇", reply_markup=stats_inline_kb())
 
-    # --- STAT: today
+    # -------------------------
+    # STAT: today
+    # -------------------------
     @dp.callback_query(F.data == "stats:today")
     async def stats_today(call: CallbackQuery):
         if call.from_user.id not in ADMIN_IDS:
@@ -221,20 +235,22 @@ def register_admin(dp):
             return
 
         start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        items = await load_payments_since(start)
-        st = payments_stats(to_rows(items))
+        rows = await list_payments_since(start)  # ✅ pay_code bilan
+        st = payments_stats(rows)
 
         text = (
             "📈 <b>Bugungi statistika (UTC)</b>\n\n"
-            f"ALL: {st['all']['count']} ta | {st['all']['sum']:,} so'm\n"
-            f"PAYME: {st['payme']['count']} ta | {st['payme']['sum']:,} so'm\n"
-            f"CLICK: {st['click']['count']} ta | {st['click']['sum']:,} so'm"
+            f"ALL: {st.get('all', {}).get('count', 0)} ta | {st.get('all', {}).get('sum', 0):,} so'm\n"
+            f"PAYME: {st.get('payme', {}).get('count', 0)} ta | {st.get('payme', {}).get('sum', 0):,} so'm\n"
+            f"CLICK: {st.get('click', {}).get('count', 0)} ta | {st.get('click', {}).get('sum', 0):,} so'm\n"
         )
 
         await safe_edit_or_send(call, text, reply_markup=stats_inline_kb())
         await call.answer()
 
-    # --- STAT: 30d
+    # -------------------------
+    # STAT: 30d
+    # -------------------------
     @dp.callback_query(F.data == "stats:30d")
     async def stats_30d(call: CallbackQuery):
         if call.from_user.id not in ADMIN_IDS:
@@ -245,20 +261,22 @@ def register_admin(dp):
             return
 
         start = datetime.utcnow() - timedelta(days=30)
-        items = await load_payments_since(start)
-        st = payments_stats(to_rows(items))
+        rows = await list_payments_since(start)  # ✅ pay_code bilan
+        st = payments_stats(rows)
 
         text = (
             "📈 <b>Oxirgi 30 kun statistika (UTC)</b>\n\n"
-            f"ALL: {st['all']['count']} ta | {st['all']['sum']:,} so'm\n"
-            f"PAYME: {st['payme']['count']} ta | {st['payme']['sum']:,} so'm\n"
-            f"CLICK: {st['click']['count']} ta | {st['click']['sum']:,} so'm"
+            f"ALL: {st.get('all', {}).get('count', 0)} ta | {st.get('all', {}).get('sum', 0):,} so'm\n"
+            f"PAYME: {st.get('payme', {}).get('count', 0)} ta | {st.get('payme', {}).get('sum', 0):,} so'm\n"
+            f"CLICK: {st.get('click', {}).get('count', 0)} ta | {st.get('click', {}).get('sum', 0):,} so'm\n"
         )
 
         await safe_edit_or_send(call, text, reply_markup=stats_inline_kb())
         await call.answer()
 
-    # --- XLSX today
+    # -------------------------
+    # XLSX: today
+    # -------------------------
     @dp.callback_query(F.data == "xlsx:today")
     async def xlsx_today(call: CallbackQuery):
         if call.from_user.id not in ADMIN_IDS:
@@ -269,9 +287,9 @@ def register_admin(dp):
             return
 
         start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        items = await load_payments_since(start)
+        rows = await list_payments_since(start)
 
-        data = build_payments_xlsx(to_rows(items), "Today")
+        data = build_payments_xlsx(rows, "Today")
         fname = f"payments_today_{datetime.utcnow():%Y%m%d_%H%M}.xlsx"
 
         await call.message.answer_document(
@@ -280,7 +298,9 @@ def register_admin(dp):
         )
         await call.answer()
 
-    # --- XLSX 30d
+    # -------------------------
+    # XLSX: 30d
+    # -------------------------
     @dp.callback_query(F.data == "xlsx:30d")
     async def xlsx_30d(call: CallbackQuery):
         if call.from_user.id not in ADMIN_IDS:
@@ -291,9 +311,9 @@ def register_admin(dp):
             return
 
         start = datetime.utcnow() - timedelta(days=30)
-        items = await load_payments_since(start)
+        rows = await list_payments_since(start)
 
-        data = build_payments_xlsx(to_rows(items), "Last 30 days")
+        data = build_payments_xlsx(rows, "Last 30 days")
         fname = f"payments_30d_{datetime.utcnow():%Y%m%d_%H%M}.xlsx"
 
         await call.message.answer_document(
@@ -302,7 +322,9 @@ def register_admin(dp):
         )
         await call.answer()
 
+    # -------------------------
     # Back
+    # -------------------------
     @dp.callback_query(F.data == "stats:back")
     async def stats_back(call: CallbackQuery):
         if call.from_user.id not in ADMIN_IDS:
