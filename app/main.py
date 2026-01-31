@@ -1,4 +1,3 @@
-# app/main.py
 import asyncio
 from datetime import datetime, timedelta
 
@@ -23,14 +22,15 @@ from .services import (
     ensure_user,
     deactivate_subscription,
     get_active_subscriptions,
-    expected_amount_uzs, normalize_plan_days,
+    expected_amount_uzs,
+    normalize_plan_days,
 )
 from .models import Subscription
-
 from .antispam import allow_click, allow_message
 from .user_ui import user_reply_kb
 
 
+# ================= BOT / DISPATCHER =================
 bot = Bot(BOT_TOKEN, parse_mode="HTML")
 dp = Dispatcher()
 
@@ -61,7 +61,7 @@ async def start_cmd(msg: Message):
     if not allow_message(user_id, delay=1.0):
         return
 
-    # ADMIN
+    # 👑 ADMIN
     if user_id in ADMIN_IDS:
         await msg.answer(
             "👑 <b>Admin panel</b>\n\nPastdagi menyudan foydalaning 👇",
@@ -69,10 +69,10 @@ async def start_cmd(msg: Message):
         )
         return
 
-    # USER
+    # 👤 USER
     u = await ensure_user(user_id)
     await msg.answer(
-        "💎 Pullik obuna\n\n"
+        "💎 <b>Pullik obuna</b>\n\n"
         f"🔐 PAY CODE: <code>{u.pay_code}</code>\n\n"
         "Pastdagi menyudan foydalaning 👇",
         reply_markup=user_reply_kb()
@@ -83,11 +83,14 @@ async def start_cmd(msg: Message):
 # ================= USER MENU =================
 @dp.message(F.text == "💳 To‘lov qilish")
 async def menu_pay(msg: Message):
-    if not allow_message(msg.from_user.id, delay=1.2):
+    if msg.from_user.id in ADMIN_IDS:
         return
+    if not allow_message(msg.from_user.id, delay=1.5):
+        return
+
     u = await ensure_user(msg.from_user.id)
     await msg.answer(
-        "💳 To‘lov qilish uchun tarif tanlang 👇\n\n"
+        "💳 Tarifni tanlang 👇\n\n"
         f"🔐 PAY CODE: <code>{u.pay_code}</code>",
         reply_markup=plans_keyboard()
     )
@@ -95,14 +98,16 @@ async def menu_pay(msg: Message):
 
 @dp.message(F.text == "👤 Obunam")
 async def menu_my_sub(msg: Message):
-    if not allow_message(msg.from_user.id, delay=1.2):
+    if msg.from_user.id in ADMIN_IDS:
+        return
+    if not allow_message(msg.from_user.id, delay=1.5):
         return
 
     async with Session() as s:
         sub = await s.get(Subscription, msg.from_user.id)
 
-    if not sub or (not sub.active) or sub.expires_at <= datetime.utcnow():
-        await msg.answer("❌ Sizda faol obuna yo‘q.\n/start bosing yoki to‘lov qiling.", reply_markup=user_reply_kb())
+    if not sub or not sub.active or sub.expires_at <= datetime.utcnow():
+        await msg.answer("❌ Sizda faol obuna yo‘q.", reply_markup=user_reply_kb())
         return
 
     left = sub.expires_at - datetime.utcnow()
@@ -111,7 +116,7 @@ async def menu_my_sub(msg: Message):
 
     await msg.answer(
         "✅ <b>Obuna faol</b>\n\n"
-        f"🗓 Tugash vaqti (UTC): {sub.expires_at:%Y-%m-%d %H:%M}\n"
+        f"🗓 Tugash vaqti: {sub.expires_at:%Y-%m-%d %H:%M} UTC\n"
         f"⏳ Qoldi: {days} kun {hours} soat",
         reply_markup=user_reply_kb()
     )
@@ -119,11 +124,14 @@ async def menu_my_sub(msg: Message):
 
 @dp.message(F.text == "🔄 Yangilash")
 async def menu_renew(msg: Message):
-    if not allow_message(msg.from_user.id, delay=1.2):
+    if msg.from_user.id in ADMIN_IDS:
         return
+    if not allow_message(msg.from_user.id, delay=1.5):
+        return
+
     u = await ensure_user(msg.from_user.id)
     await msg.answer(
-        "🔄 Obunani yangilash uchun tarif tanlang 👇\n\n"
+        "🔄 Yangilash uchun tarif tanlang 👇\n\n"
         f"🔐 PAY CODE: <code>{u.pay_code}</code>",
         reply_markup=plans_keyboard()
     )
@@ -131,16 +139,19 @@ async def menu_renew(msg: Message):
 
 @dp.message(F.text == "ℹ️ Yordam")
 async def menu_help(msg: Message):
-    if not allow_message(msg.from_user.id, delay=1.2):
+    if msg.from_user.id in ADMIN_IDS:
         return
+    if not allow_message(msg.from_user.id, delay=1.5):
+        return
+
     u = await ensure_user(msg.from_user.id)
     await msg.answer(
         "ℹ️ <b>Yordam</b>\n\n"
-        "1) /start bosing (PAY CODE chiqadi)\n"
+        "1) /start bosing\n"
         "2) Tarif tanlang\n"
         "3) Payme/Click’da ID maydoniga PAY CODE yozing\n"
-        "4) To‘lov tasdiqlansa bot link yuboradi\n\n"
-        f"🔐 Sizning PAY CODE: <code>{u.pay_code}</code>",
+        "4) To‘lov tasdiqlansa link keladi\n\n"
+        f"🔐 PAY CODE: <code>{u.pay_code}</code>",
         reply_markup=user_reply_kb()
     )
 
@@ -148,8 +159,10 @@ async def menu_help(msg: Message):
 # ================= PLAN TANLASH =================
 @dp.callback_query(F.data.startswith("plan:"))
 async def choose_plan(call):
+    if call.from_user.id in ADMIN_IDS:
+        return
     if not allow_click(call.from_user.id, delay=2.0):
-        await call.answer("⏳ Sekinroq 🙂", show_alert=False)
+        await call.answer("⏳ Sekinroq 🙂", show_alert=True)
         return
 
     u = await ensure_user(call.from_user.id)
@@ -159,15 +172,14 @@ async def choose_plan(call):
     await call.message.answer(
         f"✅ Tarif: {days} kun\n"
         f"💰 Narx: {price} so'm\n\n"
-        "To‘lovda ID maydoniga shu PAY CODE ni yozing:\n"
-        f"<code>{u.pay_code}</code>\n\n"
-        "To‘lov tasdiqlansa bot avtomatik link yuboradi.",
+        "ID maydoniga PAY CODE yozing:\n"
+        f"<code>{u.pay_code}</code>",
         reply_markup=pay_buttons(u.pay_code, price)
     )
     await call.answer()
 
 
-# ================= INVITES =================
+# ================= INVITE LINK =================
 async def send_invites(tg_id: int):
     g = await bot.create_chat_invite_link(
         GROUP_ID, member_limit=1,
@@ -181,12 +193,11 @@ async def send_invites(tg_id: int):
         tg_id,
         "✅ To‘lov tasdiqlandi!\n\n"
         f"👥 Guruh: {g.invite_link}\n"
-        f"📣 Kanal: {c.invite_link}\n\n"
-        "⏳ Linklar 1 soat amal qiladi."
+        f"📣 Kanal: {c.invite_link}"
     )
 
 
-# ================= 10 SONIYA TEKSHIRUV =================
+# ================= 10s TEKSHIRUV =================
 async def check_and_kick_if_no_subscription(chat_id: int, user_id: int):
     await asyncio.sleep(10)
 
@@ -208,25 +219,19 @@ async def check_and_kick_if_no_subscription(chat_id: int, user_id: int):
             pass
 
 
-# ================= KIRGANLARNI USHLASH =================
 @dp.chat_member()
 async def on_chat_member_update(event: ChatMemberUpdated):
     if event.chat.id not in (GROUP_ID, CHANNEL_ID):
         return
 
-    old = event.old_chat_member.status
-    new = event.new_chat_member.status
-
-    if old in ("left", "kicked") and new in ("member", "administrator"):
-        asyncio.create_task(check_and_kick_if_no_subscription(event.chat.id, event.new_chat_member.user.id))
-
-
-@dp.message(F.new_chat_members)
-async def on_new_members(msg: Message):
-    if msg.chat.id != GROUP_ID:
-        return
-    for u in msg.new_chat_members:
-        asyncio.create_task(check_and_kick_if_no_subscription(GROUP_ID, u.id))
+    if event.old_chat_member.status in ("left", "kicked") and \
+       event.new_chat_member.status in ("member", "administrator"):
+        asyncio.create_task(
+            check_and_kick_if_no_subscription(
+                event.chat.id,
+                event.new_chat_member.user.id
+            )
+        )
 
 
 # ================= CRON =================
@@ -244,7 +249,7 @@ async def job_check_subs():
             await deactivate_subscription(sub.tg_id)
 
 
-# ================= STARTUP =================
+# ================= STARTUP HELPERS =================
 def setup_bot():
     register_admin(dp)
 
@@ -257,7 +262,4 @@ def start_scheduler(app):
 
 
 async def stop_bot():
-    try:
-        await bot.session.close()
-    except Exception:
-        pass
+    await bot.session.close()
