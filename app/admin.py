@@ -17,9 +17,7 @@ from .database import Session
 from .models import Subscription, Payment
 from .reports import build_payments_xlsx, payments_stats
 from .antispam import allow_click, allow_message
-from .services import ensure_user
-# ✅ pay_code chiqishi uchun Payment+User join qiladigan service
-from .services import list_payments_since
+from .services import ensure_user, list_payments_since
 
 
 # =========================
@@ -28,21 +26,14 @@ from .services import list_payments_since
 def admin_reply_kb():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [
-                KeyboardButton(text="🎁 Obuna berish"),
-                KeyboardButton(text="📊 To‘lovlar"),
-            ],
-            [
-                KeyboardButton(text="📈 Statistika"),
-                KeyboardButton(text="ℹ️ Buyruqlar"),
-            ],
-            [
-                KeyboardButton(text="👑 Mening PAY CODE"),
-            ],
+            [KeyboardButton(text="🎁 Obuna berish"), KeyboardButton(text="📊 To‘lovlar")],
+            [KeyboardButton(text="📈 Statistika"), KeyboardButton(text="ℹ️ Buyruqlar")],
+            [KeyboardButton(text="👑 Mening PAY CODE")],
         ],
         resize_keyboard=True,
         is_persistent=True,
     )
+
 
 # =========================
 # Statistika INLINE menu
@@ -57,42 +48,19 @@ def stats_inline_kb():
     ])
 
 
-# =========================
-# DB helpers
-# =========================
-async def load_last_30_simple():
-    """Oxirgi 30 ta to‘lov (pay_code shart emas)"""
-    async with Session() as s:
-        # select(Payment) ishlatamiz (SQLAlchemy 2.0 style)
-        from sqlalchemy import select
-        res = await s.execute(select(Payment).order_by(Payment.id.desc()).limit(30))
-        return res.scalars().all()
-
-
-def to_rows_simple(items: list[Payment]):
-    """Payment obyektidan dict (pay_code yo‘q)"""
-    out = []
-    for p in items:
-        out.append({
-            "id": p.id,
-            "created_at": p.created_at,
-            "tg_id": p.tg_id,
-            "pay_code": None,
-            "provider": p.provider,
-            "amount": p.amount,
-            "status": p.status,
-            "plan_days": p.plan_days,
-            "ext_id": p.ext_id,
-        })
-    return out
-
-
 async def safe_edit_or_send(call: CallbackQuery, text: str, reply_markup=None):
-    """edit_text xato bersa ham javob qaytaradi"""
     try:
         await call.message.edit_text(text, reply_markup=reply_markup)
     except Exception:
         await call.message.answer(text, reply_markup=reply_markup)
+
+
+async def load_last_30_simple():
+    """Oxirgi 30 ta to‘lov (oddiy ro‘yxat)"""
+    from sqlalchemy import select
+    async with Session() as s:
+        res = await s.execute(select(Payment).order_by(Payment.id.desc()).limit(30))
+        return res.scalars().all()
 
 
 # =========================
@@ -100,45 +68,25 @@ async def safe_edit_or_send(call: CallbackQuery, text: str, reply_markup=None):
 # =========================
 def register_admin(dp):
 
-
-@dp.message(F.text == "👑 Mening PAY CODE")
-async def admin_my_paycode(msg: Message):
-    if msg.from_user.id not in ADMIN_IDS:
-        return
-
-    u = await ensure_user(msg.from_user.id)
-
-    await msg.answer(
-        "👑 <b>Admin PAY CODE</b>\n\n"
-        f"🔐 Sizning PAY CODE: <code>{u.pay_code}</code>\n\n"
-        "⚠️ Bu kod umrbod o‘zgarmaydi",
-        reply_markup=admin_reply_kb()
-    )
-    # -------------------------
     # /admin
-    # -------------------------
     @dp.message(F.text == "/admin")
     async def admin_panel(msg: Message):
         if msg.from_user.id not in ADMIN_IDS:
             return
         if not allow_message(msg.from_user.id, delay=1.0):
             return
-
         await msg.answer(
             "👑 <b>Admin panel</b>\nPastdagi menyudan tanlang 👇",
             reply_markup=admin_reply_kb()
         )
 
-    # -------------------------
     # Buyruqlar
-    # -------------------------
     @dp.message(F.text == "ℹ️ Buyruqlar")
     async def admin_help(msg: Message):
         if msg.from_user.id not in ADMIN_IDS:
             return
         if not allow_message(msg.from_user.id, delay=0.8):
             return
-
         await msg.answer(
             "👑 <b>Admin buyruqlari</b>\n\n"
             "/admin — admin panel\n"
@@ -146,20 +94,34 @@ async def admin_my_paycode(msg: Message):
             "Pastki menyu:\n"
             "🎁 Obuna berish\n"
             "📊 To‘lovlar\n"
-            "📈 Statistika",
+            "📈 Statistika\n"
+            "👑 Mening PAY CODE",
             reply_markup=admin_reply_kb()
         )
 
-    # -------------------------
-    # Obuna berish (hint)
-    # -------------------------
+    # Admin paycode
+    @dp.message(F.text == "👑 Mening PAY CODE")
+    async def admin_my_paycode(msg: Message):
+        if msg.from_user.id not in ADMIN_IDS:
+            return
+        if not allow_message(msg.from_user.id, delay=0.8):
+            return
+
+        u = await ensure_user(msg.from_user.id)
+        await msg.answer(
+            "👑 <b>Admin PAY CODE</b>\n\n"
+            f"🔐 Sizning PAY CODE: <code>{u.pay_code}</code>\n\n"
+            "⚠️ Bu kod 1 marta yaratiladi va o‘zgarmaydi.",
+            reply_markup=admin_reply_kb()
+        )
+
+    # Obuna berish hint
     @dp.message(F.text == "🎁 Obuna berish")
     async def admin_give_hint(msg: Message):
         if msg.from_user.id not in ADMIN_IDS:
             return
         if not allow_message(msg.from_user.id, delay=0.8):
             return
-
         await msg.answer(
             "🎁 <b>Obuna berish</b>\n\n"
             "<code>/give USER_ID KUN</code>\n"
@@ -168,9 +130,7 @@ async def admin_my_paycode(msg: Message):
             reply_markup=admin_reply_kb()
         )
 
-    # -------------------------
     # /give USER_ID DAYS
-    # -------------------------
     @dp.message(F.text.startswith("/give"))
     async def give(msg: Message):
         if msg.from_user.id not in ADMIN_IDS:
@@ -211,9 +171,7 @@ async def admin_my_paycode(msg: Message):
 
         await msg.answer("✅ Obuna berildi", reply_markup=admin_reply_kb())
 
-    # -------------------------
     # To‘lovlar (oxirgi 30)
-    # -------------------------
     @dp.message(F.text == "📊 To‘lovlar")
     async def payments(msg: Message):
         if msg.from_user.id not in ADMIN_IDS:
@@ -232,9 +190,7 @@ async def admin_my_paycode(msg: Message):
         )
         await msg.answer("📊 <b>Oxirgi 30 ta to‘lov</b>\n\n" + text, reply_markup=admin_reply_kb())
 
-    # -------------------------
     # Statistika entry
-    # -------------------------
     @dp.message(F.text == "📈 Statistika")
     async def stats_entry(msg: Message):
         if msg.from_user.id not in ADMIN_IDS:
@@ -244,9 +200,7 @@ async def admin_my_paycode(msg: Message):
 
         await msg.answer("📈 <b>Statistika</b>\nTanlang 👇", reply_markup=stats_inline_kb())
 
-    # -------------------------
     # STAT: today
-    # -------------------------
     @dp.callback_query(F.data == "stats:today")
     async def stats_today(call: CallbackQuery):
         if call.from_user.id not in ADMIN_IDS:
@@ -257,7 +211,7 @@ async def admin_my_paycode(msg: Message):
             return
 
         start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        rows = await list_payments_since(start)  # ✅ pay_code bilan
+        rows = await list_payments_since(start)  # pay_code bilan
         st = payments_stats(rows)
 
         text = (
@@ -266,13 +220,10 @@ async def admin_my_paycode(msg: Message):
             f"PAYME: {st.get('payme', {}).get('count', 0)} ta | {st.get('payme', {}).get('sum', 0):,} so'm\n"
             f"CLICK: {st.get('click', {}).get('count', 0)} ta | {st.get('click', {}).get('sum', 0):,} so'm\n"
         )
-
         await safe_edit_or_send(call, text, reply_markup=stats_inline_kb())
         await call.answer()
 
-    # -------------------------
     # STAT: 30d
-    # -------------------------
     @dp.callback_query(F.data == "stats:30d")
     async def stats_30d(call: CallbackQuery):
         if call.from_user.id not in ADMIN_IDS:
@@ -283,7 +234,7 @@ async def admin_my_paycode(msg: Message):
             return
 
         start = datetime.utcnow() - timedelta(days=30)
-        rows = await list_payments_since(start)  # ✅ pay_code bilan
+        rows = await list_payments_since(start)
         st = payments_stats(rows)
 
         text = (
@@ -292,13 +243,10 @@ async def admin_my_paycode(msg: Message):
             f"PAYME: {st.get('payme', {}).get('count', 0)} ta | {st.get('payme', {}).get('sum', 0):,} so'm\n"
             f"CLICK: {st.get('click', {}).get('count', 0)} ta | {st.get('click', {}).get('sum', 0):,} so'm\n"
         )
-
         await safe_edit_or_send(call, text, reply_markup=stats_inline_kb())
         await call.answer()
 
-    # -------------------------
     # XLSX: today
-    # -------------------------
     @dp.callback_query(F.data == "xlsx:today")
     async def xlsx_today(call: CallbackQuery):
         if call.from_user.id not in ADMIN_IDS:
@@ -310,7 +258,6 @@ async def admin_my_paycode(msg: Message):
 
         start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         rows = await list_payments_since(start)
-
         data = build_payments_xlsx(rows, "Today")
         fname = f"payments_today_{datetime.utcnow():%Y%m%d_%H%M}.xlsx"
 
@@ -320,9 +267,7 @@ async def admin_my_paycode(msg: Message):
         )
         await call.answer()
 
-    # -------------------------
     # XLSX: 30d
-    # -------------------------
     @dp.callback_query(F.data == "xlsx:30d")
     async def xlsx_30d(call: CallbackQuery):
         if call.from_user.id not in ADMIN_IDS:
@@ -334,7 +279,6 @@ async def admin_my_paycode(msg: Message):
 
         start = datetime.utcnow() - timedelta(days=30)
         rows = await list_payments_since(start)
-
         data = build_payments_xlsx(rows, "Last 30 days")
         fname = f"payments_30d_{datetime.utcnow():%Y%m%d_%H%M}.xlsx"
 
@@ -344,9 +288,7 @@ async def admin_my_paycode(msg: Message):
         )
         await call.answer()
 
-    # -------------------------
     # Back
-    # -------------------------
     @dp.callback_query(F.data == "stats:back")
     async def stats_back(call: CallbackQuery):
         if call.from_user.id not in ADMIN_IDS:
