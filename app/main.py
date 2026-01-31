@@ -72,13 +72,14 @@ async def start_cmd(msg: Message):
         return
 
     # 👤 ODDIY USER
-    await msg.answer(
-        "💎 Pullik obuna\n\n"
-        f"🔐 PAY CODE: <code>{u.pay_code}</code>\n\n"
-        "Pastdagi menyudan foydalaning 👇",
-        reply_markup=user_reply_kb()
-    )
-    await msg.answer("Tarifni tanlang 👇", reply_markup=plans_keyboard())
+u = await ensure_user(user_id)
+await msg.answer(
+    "💎 Pullik obuna\n\n"
+    f"🔐 PAY CODE: <code>{u.pay_code}</code>\n\n"
+    "Pastdagi menyudan foydalaning 👇",
+    reply_markup=user_reply_kb()
+)
+await msg.answer("Tarifni tanlang 👇", reply_markup=plans_keyboard())
 
 
 # ================= USER MENU (pastki menyu) =================
