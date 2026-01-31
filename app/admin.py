@@ -16,7 +16,7 @@ from .config import ADMIN_IDS
 from .database import Session
 from .models import Subscription, Payment
 from .reports import build_payments_xlsx, payments_stats
-
+from .antispam import allow_click, allow_message
 
 # =========================
 # Pastki ADMIN MENU (doim turadi)
