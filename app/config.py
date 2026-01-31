@@ -1,3 +1,4 @@
+# app/config.py
 import os
 from dotenv import load_dotenv
 
@@ -7,11 +8,16 @@ def _get_int(name: str, default: int = 0) -> int:
     v = (os.getenv(name, "") or "").strip()
     return int(v) if v else default
 
+def _get_set_int(name: str) -> set[int]:
+    raw = (os.getenv(name, "") or "").strip()
+    if not raw:
+        return set()
+    return {int(x.strip()) for x in raw.split(",") if x.strip()}
+
 BOT_TOKEN = (os.getenv("BOT_TOKEN", "") or "").strip()
 
 # ADMIN_IDS="123,456"
-_admin_raw = (os.getenv("ADMIN_IDS", "") or "").strip()
-ADMIN_IDS = set(int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip())
+ADMIN_IDS = _get_set_int("ADMIN_IDS")
 
 GROUP_ID = _get_int("GROUP_ID", 0)
 CHANNEL_ID = _get_int("CHANNEL_ID", 0)
