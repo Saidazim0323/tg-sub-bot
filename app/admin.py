@@ -18,7 +18,7 @@ from .models import Subscription, Payment
 from .reports import build_payments_xlsx, payments_stats
 from .antispam import allow_click, allow_message
 from .services import ensure_user, list_payments_since
-from .main import bot
+
 from .services import deactivate_subscription
 from .config import GROUP_ID, CHANNEL_ID
 
