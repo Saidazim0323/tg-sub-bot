@@ -29,6 +29,7 @@ def admin_reply_kb():
             [KeyboardButton(text="🎁 Obuna berish"), KeyboardButton(text="📊 To‘lovlar")],
             [KeyboardButton(text="📈 Statistika"), KeyboardButton(text="ℹ️ Buyruqlar")],
             [KeyboardButton(text="👑 Mening PAY CODE")],
+            [KeyboardButton(text="❌ Obunani bekor qilish")],
         ],
         resize_keyboard=True,
         is_persistent=True,
