@@ -18,7 +18,9 @@ from .models import Subscription, Payment
 from .reports import build_payments_xlsx, payments_stats
 from .antispam import allow_click, allow_message
 from .services import ensure_user, list_payments_since
-
+from .main import bot
+from .services import deactivate_subscription
+from .config import GROUP_ID, CHANNEL_ID
 
 # =========================
 # Pastki ADMIN MENU (doim turadi)
@@ -131,6 +133,75 @@ def register_admin(dp):
             "<code>/give 123456789 30</code>",
             reply_markup=admin_reply_kb()
         )
+        # Bekor qilish hint (tugma bosilganda)
+    @dp.message(F.text == "❌ Obunani bekor qilish")
+    async def cancel_hint(msg: Message):
+        if msg.from_user.id not in ADMIN_IDS:
+            return
+        if not allow_message(msg.from_user.id, delay=0.8):
+            return
+
+        await msg.answer(
+            "❌ <b>Obunani bekor qilish</b>\n\n"
+            "<code>/cancel TG_ID</code>\n"
+            "Misol:\n"
+            "<code>/cancel 123456789</code>\n\n"
+            "Bekor bo‘lgach user guruh va kanaldan chiqariladi.",
+            reply_markup=admin_reply_kb()
+        )
+
+          # /cancel TG_ID
+    @dp.message(F.text.startswith("/cancel"))
+    async def cancel_sub(msg: Message):
+        if msg.from_user.id not in ADMIN_IDS:
+            return
+        if not allow_message(msg.from_user.id, delay=1.0):
+            return
+
+        parts = msg.text.split()
+        if len(parts) != 2:
+            await msg.answer("Format: /cancel TG_ID", reply_markup=admin_reply_kb())
+            return
+
+        try:
+            tg_id = int(parts[1])
+        except ValueError:
+            await msg.answer("Xato: TG_ID raqam bo‘lishi kerak.", reply_markup=admin_reply_kb())
+            return
+
+        # 1) DB: obunani bekor qilish
+        await deactivate_subscription(tg_id)
+
+        # 2) Guruh + kanaldan chiqarish (kick)
+        kicked = []
+        for chat_id, name in [(GROUP_ID, "guruh"), (CHANNEL_ID, "kanal")]:
+            if not chat_id:
+                continue
+            try:
+                await bot.ban_chat_member(chat_id, tg_id)
+                await bot.unban_chat_member(chat_id, tg_id)
+                kicked.append(name)
+            except Exception:
+                # user u yerda bo‘lmasligi mumkin yoki botda huquq yetishmasligi mumkin
+                pass
+
+        # 3) Userga xabar (private bo‘lsa)
+        try:
+            await bot.send_message(
+                tg_id,
+                "❌ Obunangiz bekor qilindi.\n"
+                "Guruh/kanalga kirish yopildi.\n\n"
+                "Qayta obuna bo‘lish uchun /start bosing."
+            )
+        except Exception:
+            pass
+
+        kicked_txt = ", ".join(kicked) if kicked else "chiqarilmadi (user yo‘q yoki bot huquqi yetmadi)"
+        await msg.answer(
+            f"✅ Bekor qilindi: <code>{tg_id}</code>\n"
+            f"🚪 Chiqarildi: {kicked_txt}",
+            reply_markup=admin_reply_kb()
+            )
 
     # /give USER_ID DAYS
     @dp.message(F.text.startswith("/give"))
